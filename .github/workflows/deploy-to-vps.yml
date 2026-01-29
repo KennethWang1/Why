@@ -10,6 +10,11 @@ jobs:
     runs-on: ubuntu-latest  # Use a GitHub-hosted runner
  
     steps:
+      - name: Debug Secrets
+        run: |
+          if [ -z "${{ secrets.TS_OAUTH_CLIENT_ID }}" ]; then echo "TS_OAUTH_CLIENT_ID is EMPTY"; else echo "TS_OAUTH_CLIENT_ID is SET (Length: $(echo -n "${{ secrets.TS_OAUTH_CLIENT_ID }}" | wc -c))"; fi
+          if [ -z "${{ secrets.TS_OAUTH_SECRET }}" ]; then echo "TS_OAUTH_SECRET is EMPTY"; else echo "TS_OAUTH_SECRET is SET (Length: $(echo -n "${{ secrets.TS_OAUTH_SECRET }}" | wc -c))"; fi
+
       - name: Tailscale
         uses: tailscale/github-action@v2
         with:
