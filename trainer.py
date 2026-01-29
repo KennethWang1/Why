@@ -7,7 +7,7 @@ from model import build_transformer_model, MAX_LENGTH
 # --- Training Parameters ---
 LEARNING_RATE = 0.001    # Learning rate for optimizer
 BATCH_SIZE = 12           # Batch size for training (Reduced for memory)
-EPOCHS = 10              # Number of training epochs
+EPOCHS = 2               # Number of training epochs
 
 def train_transformer(encoder_input_data, decoder_input_data, decoder_target_data, model=None, save_path="transformer_model.keras"):
     """
