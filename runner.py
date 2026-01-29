@@ -97,8 +97,10 @@ def get_train_batch(limit=100):
 
 def training_cycle():
     global current_accuracy, stop_event, training_active, m
+    cycle_count = 0
     
     while not stop_event.is_set():
+        cycle_count += 1
         # 1. Train Step
         texts = get_train_batch(limit=100)
         if not texts:
@@ -127,8 +129,11 @@ def training_cycle():
         # Explicit Garbage Collection to prevent memory creep
         gc.collect()
 
-        # Pause for 10 seconds to allow for other operations or cooldown
-        time.sleep(20)
+        # Pause logic: 5 minute break every 5 cycles, otherwise 20s
+        if cycle_count % 5 == 0:
+            time.sleep(300)
+        else:
+            time.sleep(20)
     
     # Final cleanup
     with model_lock:
