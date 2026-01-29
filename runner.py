@@ -6,6 +6,7 @@ import numpy as np
 import threading
 import time
 import sys
+import os
 import gc
 from tensorflow import keras
 
@@ -18,7 +19,21 @@ train_iterator = None
 test_iterator = None
 model_lock = threading.Lock()
 
-m = model.build_transformer_model()
+model_path = "transformer_model_final.keras"
+if os.path.exists(model_path):
+    print(f"Loading model from {model_path}...")
+    try:
+        m = keras.models.load_model(model_path, custom_objects={
+            "TokenAndPositionEmbedding": model.TokenAndPositionEmbedding
+        })
+        print("Model loaded successfully.")
+    except Exception as e:
+        print(f"Failed to load model: {e}")
+        print("Building new model...")
+        m = model.build_transformer_model()
+else:
+    print("No saved model found. Building new model...")
+    m = model.build_transformer_model()
 
 def generate_response(input_text):
     """
@@ -122,11 +137,10 @@ def training_cycle():
         # Explicit Garbage Collection to prevent memory creep
         gc.collect()
 
-        # Pause logic: 5 minute break every 5 cycles, otherwise 20s
-        if cycle_count % 5 == 0:
-            time.sleep(300)
-        else:
-            time.sleep(60)
+        # Pause logic: 5 minute break every 5 cycles, otherwise 60s
+        sleep_time = 300 if cycle_count % 10 == 0 else 60
+        if stop_event.wait(timeout=sleep_time):
+            break
     
     # Final cleanup
     with model_lock:

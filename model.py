@@ -15,8 +15,11 @@ DROPOUT_RATE = 0.1       # Dropout rate
 
 class TokenAndPositionEmbedding(layers.Layer):
     """Combines token embedding with positional embedding."""
-    def __init__(self, maxlen, vocab_size, embed_dim):
-        super().__init__()
+    def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.maxlen = maxlen
+        self.vocab_size = vocab_size
+        self.embed_dim = embed_dim
         self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
         self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
 
@@ -26,6 +29,15 @@ class TokenAndPositionEmbedding(layers.Layer):
         positions = self.pos_emb(positions)
         x = self.token_emb(x)
         return x + positions
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "maxlen": self.maxlen,
+            "vocab_size": self.vocab_size,
+            "embed_dim": self.embed_dim,
+        })
+        return config
 
 def transformer_encoder_layer(inputs, head_size, num_heads, ff_dim, dropout=0):
     """A single Transformer Encoder Layer."""
