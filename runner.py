@@ -7,6 +7,7 @@ import threading
 import time
 import sys
 import gc
+from tensorflow import keras
 
 # Global state
 training_active = False
@@ -24,18 +25,14 @@ def generate_response(input_text):
     Generates a response from the model based on the input text.
     Uses a Greedy Decode strategy.
     """
-    # Ensure tokenizer is loaded
     data_parse.load_vocab()
     
-    # Get special token IDs dynamically
     start_token_id = data_parse.get_special_token_id("<TALK_START>")
     end_token_id = data_parse.get_special_token_id("<TALK_END>")
     pad_token_id = data_parse.get_special_token_id("<PAD>")
 
-    # Tokenize input
     tokenized_seq = data_parse.tonkenizer([input_text])[0]
     
-    # Prepare Encoder Input (Pad to MAX_LENGTH)
     enc_pad_len = model.MAX_LENGTH - len(tokenized_seq)
     if enc_pad_len < 0:
         enc_in = tokenized_seq[:model.MAX_LENGTH]
@@ -44,10 +41,8 @@ def generate_response(input_text):
         
     encoder_input = np.array([enc_in])
     
-    # Decoder Input Initialization
     output_seq = [start_token_id]
     
-    # Greedy Generation Loop
     for _ in range(model.MAX_LENGTH):
         dec_pad_len = model.MAX_LENGTH - len(output_seq)
         if dec_pad_len < 0:
@@ -58,7 +53,6 @@ def generate_response(input_text):
         
         # Predict (Thread-safe)
         with model_lock:
-            # preds = m.predict([encoder_input, dec_in_array], verbose=0)
             preds = m([encoder_input, dec_in_array], training=False)
             preds = preds.numpy()
         
@@ -72,7 +66,6 @@ def generate_response(input_text):
         
         output_seq.append(next_token)
 
-    # Decode the generated sequence (excluding start token)
     return data_parse.decode(output_seq[1:])
 
 def get_train_batch(limit=100):
@@ -214,6 +207,7 @@ def test(samples=50):
         encoder_inputs.append(enc_in)
         decoder_inputs.append(dec_in)
         decoder_targets.append(target)
+        print(dec_in)
         
     encoder_inputs = np.array(encoder_inputs)
     decoder_inputs = np.array(decoder_inputs)
@@ -226,3 +220,14 @@ def test(samples=50):
     accuracy = results[1]
     return accuracy
 
+if __name__ == "__main__":
+    try:
+        data_parse.load_vocab()
+        optimizer = keras.optimizers.Adam(learning_rate=trainer.LEARNING_RATE)
+        loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
+        m.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
+        print(test(samples = 50))
+    finally:
+        test_iterator = None
+        train_iterator = None
+        gc.collect()
