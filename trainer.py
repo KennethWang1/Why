@@ -33,14 +33,15 @@ def train_transformer(encoder_input_data, decoder_input_data, decoder_target_dat
         y=decoder_target_data,
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
-        validation_split=0.1
+        validation_split=0.1,
+        verbose=0
     )
     
     model.save(save_path)
     
     return model, history
 
-def pretrain_autoencoder(tokenized_texts, start_token_id=0, end_token_id=1, pad_token_id=4):
+def pretrain_autoencoder(tokenized_texts, model=None, start_token_id=0, end_token_id=1, pad_token_id=4):
     """
     Pretrains the model to output readable text by learning to reconstruct input text.
     (Auto-Encoder Strategy)

@@ -9,7 +9,7 @@ import sys
 
 # Global state
 training_active = False
-stop_requested = False
+stop_event = threading.Event()
 current_accuracy = 0.0
 worker_thread = None
 train_iterator = None
@@ -22,8 +22,13 @@ def generate_response(input_text):
     Generates a response from the model based on the input text.
     Uses a Greedy Decode strategy.
     """
+    # Use load_vocab safely if needed, or assume loaded. 
+    # Better to reload to catch external updates if any, but with the lock it is safe.
     data_parse.load_vocab()
-    id_to_word = {v: k for k, v in data_parse.vocab.items()}
+    
+    with data_parse.vocab_lock:
+        id_to_word = {v: k for k, v in data_parse.vocab.items()}
+    
     start_token_id = 0 
     end_token_id = 1  
     pad_token_id = 4
@@ -95,9 +100,9 @@ def get_train_batch(limit=1000):
     return texts
 
 def training_cycle():
-    global current_accuracy, stop_requested, training_active, m
+    global current_accuracy, stop_event, training_active, m
     
-    while not stop_requested:
+    while not stop_event.is_set():
         # 1. Train Step
         texts = get_train_batch(limit=500)
         if not texts:
@@ -111,35 +116,38 @@ def training_cycle():
         # 2. Test Step
         acc = test(samples=100)
         current_accuracy = acc
+        
+        # Pause for 10 seconds to allow for other operations or cooldown
+        time.sleep(10)
     
     # Final cleanup
     with model_lock:
         m.save("transformer_model_final.h5")
     training_active = False
-    worker_thread.sleep(10000)
+    # Worker thread ends here naturally
 
 def start_training():
-    global training_active, stop_requested, worker_thread
+    global training_active, stop_event, worker_thread
     if training_active:
         return
 
-    stop_requested = False
+    stop_event.clear()
     training_active = True
     worker_thread = threading.Thread(target=training_cycle)
     worker_thread.daemon = True # Close if main program closes violently
     worker_thread.start()
 
 def stop_training():
-    global stop_requested
+    global stop_event
     if not training_active:
         return
-    stop_requested = True
+    stop_event.set()
 
 def get_current_accuracy():
     return current_accuracy
 
 def test(samples=100):
-    data_parse.load_vocab()
+    # data_parse.load_vocab() # Avoid reloading from disk mid-training to prevent inconsistencies
     dataset = load_dataset('roneneldan/TinyStories', split='test', streaming=True)
     
     # print(f"Collecting {samples} test samples...")
