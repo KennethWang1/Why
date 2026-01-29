@@ -1,0 +1,27 @@
+name: Deploy to VPS on Push
+ 
+# Trigger the workflow when code is pushed to the 'main' branch
+on:
+  push:
+    branches: [ "main" ]
+ 
+jobs:
+  deploy:
+    runs-on: ubuntu-latest  # Use a GitHub-hosted runner
+ 
+    steps:
+      - name: Load SSH key (for VPS access)
+        uses: webfactory/ssh-agent@v0.5.4  # Action to manage SSH keys
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}  # Use the private key secret
+ 
+      - name: Add VPS to known_hosts (avoid "trust this host?" prompts)
+        run: ssh-keyscan -p ${{ secrets.VPS_PORT }} -H ${{ secrets.VPS_IP }} >> ~/.ssh/known_hosts
+ 
+      - name: SSH into VPS and pull latest code
+        run: |
+          ssh -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_IP }} << 'EOF'
+            cd ${{ secrets.VPS_REPO_PATH }}
+            git pull origin main
+            # Optional: Add post-pull steps (e.g., restart a service: sudo systemctl restart myapp)
+          EOF
