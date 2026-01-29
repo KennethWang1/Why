@@ -107,7 +107,18 @@ def training_cycle():
         tokenized_texts = data_parse.tonkenizer(texts)
         
         with model_lock:
-            trainer.pretrain_autoencoder(tokenized_texts, model=m)
+            # Get dynamic token IDs ensure we match the tokenizer
+            t_start = data_parse.get_special_token_id("<TALK_START>")
+            t_end = data_parse.get_special_token_id("<TALK_END>")
+            t_pad = data_parse.get_special_token_id("<PAD>")
+            
+            trainer.pretrain_autoencoder(
+                tokenized_texts, 
+                model=m,
+                start_token_id=t_start,
+                end_token_id=t_end,
+                pad_token_id=t_pad
+            )
         
         # 2. Test Step
         acc = test(samples=50)
@@ -172,9 +183,10 @@ def test(samples=50):
     tokenized_texts = data_parse.tonkenizer(texts)
     
     # Prepare Data Arrays (Same logic as trainer.pretrain_autoencoder)
-    pad_token_id = 4
-    start_token_id = 0
-    end_token_id = 1
+    # Get dynamic token IDs
+    pad_token_id = data_parse.get_special_token_id("<PAD>")
+    start_token_id = data_parse.get_special_token_id("<TALK_START>")
+    end_token_id = data_parse.get_special_token_id("<TALK_END>")
     
     encoder_inputs = []
     decoder_inputs = []
