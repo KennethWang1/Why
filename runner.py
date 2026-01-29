@@ -128,7 +128,7 @@ def training_cycle():
         gc.collect()
 
         # Pause for 10 seconds to allow for other operations or cooldown
-        time.sleep(45)
+        time.sleep(20)
     
     # Final cleanup
     with model_lock:
