@@ -28,6 +28,6 @@ jobs:
         run: |
           ssh -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_IP }} << 'EOF'
             cd ${{ secrets.VPS_REPO_PATH }}
-            git pull origin main
+            git pull origin master
             # Optional: Add post-pull steps (e.g., restart a service: sudo systemctl restart myapp)
           EOF
