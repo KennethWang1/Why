@@ -38,11 +38,6 @@ async def ping(ctx):
     await ctx.send(f"Pong! Latency is {round(bot.latency * 1000)} ms")
 
 @bot.command(description="saves the vocabulary to a file.")
-async def add(ctx, *, sentence):
-    output = data_parse.tonkenizer([sentence])
-    await ctx.send(f"Parsed output: {output}")
-
-@bot.command(description="saves the vocabulary to a file.")
 async def save(ctx):
     data_parse.save_vocab()
     await ctx.send("Vocabulary saved to file.")

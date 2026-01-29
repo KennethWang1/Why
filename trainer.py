@@ -6,10 +6,10 @@ from model import build_transformer_model, MAX_LENGTH
 
 # --- Training Parameters ---
 LEARNING_RATE = 0.001    # Learning rate for optimizer
-BATCH_SIZE = 64          # Batch size for training
+BATCH_SIZE = 12           # Batch size for training (Reduced for memory)
 EPOCHS = 10              # Number of training epochs
 
-def train_transformer(encoder_input_data, decoder_input_data, decoder_target_data, model=None, save_path="transformer_model.h5"):
+def train_transformer(encoder_input_data, decoder_input_data, decoder_target_data, model=None, save_path="transformer_model.keras"):
     """
     Training algorithm for the transformer.
     
@@ -23,17 +23,17 @@ def train_transformer(encoder_input_data, decoder_input_data, decoder_target_dat
     if model is None:
         model = build_transformer_model()
     
-    # Compile (or re-compile) the model
-    optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
-    loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
-    model.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
+    # Only compile if not already compiled to avoid memory leaks from repeated compilation
+    if not hasattr(model, "optimizer") or model.optimizer is None:
+        optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
+        loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
+        model.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
     
     history = model.fit(
         x=[encoder_input_data, decoder_input_data],
         y=decoder_target_data,
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
-        validation_split=0.1,
         verbose=0
     )
     
@@ -79,10 +79,10 @@ def pretrain_autoencoder(tokenized_texts, model=None, start_token_id=0, end_toke
         decoder_inputs.append(dec_in)
         decoder_targets.append(target)
         
-    encoder_inputs = np.array(encoder_inputs)
-    decoder_inputs = np.array(decoder_inputs)
-    decoder_targets = np.array(decoder_targets)
+    encoder_inputs = np.array(encoder_inputs, dtype=np.int32)
+    decoder_inputs = np.array(decoder_inputs, dtype=np.int32)
+    decoder_targets = np.array(decoder_targets, dtype=np.int32)
     
     # Train and save to a specific pretrain file
-    return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="pretrained_model.h5", model=model)
+    return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="pretrained_model.keras", model=model)
 

@@ -5,3 +5,4 @@ __pycache__/
 .github/
 *.json
 *.h5
+*.keras

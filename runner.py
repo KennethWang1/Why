@@ -6,6 +6,7 @@ import numpy as np
 import threading
 import time
 import sys
+import gc
 
 # Global state
 training_active = False
@@ -13,6 +14,7 @@ stop_event = threading.Event()
 current_accuracy = 0.0
 worker_thread = None
 train_iterator = None
+test_iterator = None
 model_lock = threading.Lock()
 
 m = model.build_transformer_model()
@@ -22,16 +24,13 @@ def generate_response(input_text):
     Generates a response from the model based on the input text.
     Uses a Greedy Decode strategy.
     """
-    # Use load_vocab safely if needed, or assume loaded. 
-    # Better to reload to catch external updates if any, but with the lock it is safe.
+    # Ensure tokenizer is loaded
     data_parse.load_vocab()
     
-    with data_parse.vocab_lock:
-        id_to_word = {v: k for k, v in data_parse.vocab.items()}
-    
-    start_token_id = 0 
-    end_token_id = 1  
-    pad_token_id = 4
+    # Get special token IDs dynamically
+    start_token_id = data_parse.get_special_token_id("<TALK_START>")
+    end_token_id = data_parse.get_special_token_id("<TALK_END>")
+    pad_token_id = data_parse.get_special_token_id("<PAD>")
 
     # Tokenize input
     tokenized_seq = data_parse.tonkenizer([input_text])[0]
@@ -48,8 +47,6 @@ def generate_response(input_text):
     # Decoder Input Initialization
     output_seq = [start_token_id]
     
-    decoded_sentence = []
-
     # Greedy Generation Loop
     for _ in range(model.MAX_LENGTH):
         dec_pad_len = model.MAX_LENGTH - len(output_seq)
@@ -61,7 +58,9 @@ def generate_response(input_text):
         
         # Predict (Thread-safe)
         with model_lock:
-            preds = m.predict([encoder_input, dec_in_array], verbose=0)
+            # preds = m.predict([encoder_input, dec_in_array], verbose=0)
+            preds = m([encoder_input, dec_in_array], training=False)
+            preds = preds.numpy()
         
         # Get prediction for the last valid token
         current_step_idx = len(output_seq) - 1
@@ -72,14 +71,11 @@ def generate_response(input_text):
             break
         
         output_seq.append(next_token)
-        
-        word = id_to_word.get(next_token, f"")
-        if word not in ["<TALK_START>", "<TALK_END>"]:
-             decoded_sentence.append(word)
 
-    return " ".join(decoded_sentence)
+    # Decode the generated sequence (excluding start token)
+    return data_parse.decode(output_seq[1:])
 
-def get_train_batch(limit=1000):
+def get_train_batch(limit=100):
     global train_iterator
     if train_iterator is None:
         dataset = load_dataset('roneneldan/TinyStories', split='train', streaming=True)
@@ -104,7 +100,7 @@ def training_cycle():
     
     while not stop_event.is_set():
         # 1. Train Step
-        texts = get_train_batch(limit=500)
+        texts = get_train_batch(limit=100)
         if not texts:
             continue
             
@@ -114,15 +110,18 @@ def training_cycle():
             trainer.pretrain_autoencoder(tokenized_texts, model=m)
         
         # 2. Test Step
-        acc = test(samples=100)
+        acc = test(samples=50)
         current_accuracy = acc
         
+        # Explicit Garbage Collection to prevent memory creep
+        gc.collect()
+
         # Pause for 10 seconds to allow for other operations or cooldown
         time.sleep(10)
     
     # Final cleanup
     with model_lock:
-        m.save("transformer_model_final.h5")
+        m.save("transformer_model_final.keras")
     training_active = False
     # Worker thread ends here naturally
 
@@ -146,20 +145,28 @@ def stop_training():
 def get_current_accuracy():
     return current_accuracy
 
-def test(samples=100):
-    # data_parse.load_vocab() # Avoid reloading from disk mid-training to prevent inconsistencies
-    dataset = load_dataset('roneneldan/TinyStories', split='test', streaming=True)
+def test(samples=50):
+    global test_iterator
+    if test_iterator is None:
+        dataset = load_dataset('roneneldan/TinyStories', split='validation', streaming=True)
+        test_iterator = iter(dataset)
     
     # print(f"Collecting {samples} test samples...")
     texts = []
     count = 0
-    for example in dataset:
-        text = example['text']
-        if text.strip(): # Skip empty lines
-            texts.append(text)
-            count += 1
-        if count >= samples:
-            break
+    try:
+        for _ in range(samples * 2): # Look at up to 2x samples to find non-empty ones
+            example = next(test_iterator)
+            text = example['text']
+            if text.strip(): # Skip empty lines
+                texts.append(text)
+                count += 1
+            if count >= samples:
+                break
+    except StopIteration:
+         # Reload if iterator runs out
+         dataset = load_dataset('roneneldan/TinyStories', split='validation', streaming=True)
+         test_iterator = iter(dataset)
     
     # Tokenize
     tokenized_texts = data_parse.tonkenizer(texts)

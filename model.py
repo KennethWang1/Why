@@ -5,9 +5,9 @@ from tensorflow import keras
 from tensorflow.keras import layers
 
 # --- Customizable Parameters ---
-VOCAB_SIZE = 20000       # Size of the vocabulary
-MAX_LENGTH = 256         # Maximum sequence length
-EMBED_DIM = 256          # Embedding dimension
+VOCAB_SIZE = 12500       # Size of the vocabulary
+MAX_LENGTH = 128         # Maximum sequence length
+EMBED_DIM = 128          # Embedding dimension
 NUM_HEADS = 4            # Number of attention heads
 FF_DIM = 512             # Hidden layer size in feed forward network
 NUM_LAYERS = 2           # Number of transformer layers (Encoder/Decoder)
