@@ -4,17 +4,15 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-# --- Customizable Parameters ---
-VOCAB_SIZE = 12500       # Size of the vocabulary
-MAX_LENGTH = 128         # Maximum sequence length
-EMBED_DIM = 128          # Embedding dimension
-NUM_HEADS = 4            # Number of attention heads
-FF_DIM = 512             # Hidden layer size in feed forward network
-NUM_LAYERS = 2           # Number of transformer layers (Encoder/Decoder)
-DROPOUT_RATE = 0.1       # Dropout rate
+VOCAB_SIZE = 12500
+MAX_LENGTH = 128
+EMBED_DIM = 128
+NUM_HEADS = 4
+FF_DIM = 512
+NUM_LAYERS = 2
+DROPOUT_RATE = 0.1
 
 class TokenAndPositionEmbedding(layers.Layer):
-    """Combines token embedding with positional embedding."""
     def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
         super().__init__(**kwargs)
         self.maxlen = maxlen
@@ -40,45 +38,36 @@ class TokenAndPositionEmbedding(layers.Layer):
         return config
 
 def transformer_encoder_layer(inputs, head_size, num_heads, ff_dim, dropout=0):
-    """A single Transformer Encoder Layer."""
-    # Attention
     x = layers.MultiHeadAttention(
         key_dim=head_size, num_heads=num_heads, dropout=dropout
     )(inputs, inputs)
     x = layers.Dropout(dropout)(x)
     x = layers.LayerNormalization(epsilon=1e-6)(x + inputs)
 
-    # Feed Forward
     x_ff = layers.Dense(ff_dim, activation="relu")(x)
     x_ff = layers.Dense(inputs.shape[-1])(x_ff)
     x_ff = layers.Dropout(dropout)(x_ff)
     return layers.LayerNormalization(epsilon=1e-6)(x + x_ff)
 
 def transformer_decoder_layer(inputs, enc_outputs, head_size, num_heads, ff_dim, dropout=0):
-    """A single Transformer Decoder Layer."""
-    # Masked Self Attention (Causal)
     x = layers.MultiHeadAttention(
         key_dim=head_size, num_heads=num_heads, dropout=dropout
     )(inputs, inputs, use_causal_mask=True)
     x = layers.Dropout(dropout)(x)
     query = layers.LayerNormalization(epsilon=1e-6)(x + inputs)
 
-    # Cross Attention over Encoder Outputs
     x = layers.MultiHeadAttention(
         key_dim=head_size, num_heads=num_heads, dropout=dropout
     )(query, enc_outputs)
     x = layers.Dropout(dropout)(x)
     x = layers.LayerNormalization(epsilon=1e-6)(x + query)
 
-    # Feed Forward
     x_ff = layers.Dense(ff_dim, activation="relu")(x)
     x_ff = layers.Dense(inputs.shape[-1])(x_ff)
     x_ff = layers.Dropout(dropout)(x_ff)
     return layers.LayerNormalization(epsilon=1e-6)(x + x_ff)
 
 def build_transformer_model():
-    """Builds the complete Transformer (Encoder-Decoder) model."""
-    # -- Encoder --
     encoder_inputs = keras.Input(shape=(None,), dtype="int64", name="encoder_inputs")
     x = TokenAndPositionEmbedding(MAX_LENGTH, VOCAB_SIZE, EMBED_DIM)(encoder_inputs)
     
@@ -87,22 +76,17 @@ def build_transformer_model():
     
     encoder_outputs = x
 
-    # -- Decoder --
     decoder_inputs = keras.Input(shape=(None,), dtype="int64", name="decoder_inputs")
     x_dec = TokenAndPositionEmbedding(MAX_LENGTH, VOCAB_SIZE, EMBED_DIM)(decoder_inputs)
     
     for _ in range(NUM_LAYERS):
         x_dec = transformer_decoder_layer(x_dec, encoder_outputs, EMBED_DIM, NUM_HEADS, FF_DIM, DROPOUT_RATE)
 
-    # Output Layer
     decoder_outputs = layers.Dense(VOCAB_SIZE, activation="softmax")(x_dec)
 
     model = keras.Model([encoder_inputs, decoder_inputs], decoder_outputs, name="transformer")
     return model
 
-
-
 if __name__ == "__main__":
-    # Example usage / Test instantiation
     model = build_transformer_model()
     model.summary()

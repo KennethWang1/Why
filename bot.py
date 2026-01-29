@@ -3,7 +3,7 @@ import os
 from discord.ext import commands
 from dotenv import load_dotenv
 import data_parse
-import runner  # Import the runner module
+import runner
 
 load_dotenv()
 

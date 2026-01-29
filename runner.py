@@ -10,7 +10,6 @@ import os
 import gc
 from tensorflow import keras
 
-# Global state
 training_active = False
 stop_event = threading.Event()
 current_accuracy = 0.0
@@ -36,10 +35,6 @@ else:
     m = model.build_transformer_model()
 
 def generate_response(input_text):
-    """
-    Generates a response from the model based on the input text.
-    Uses a Greedy Decode strategy.
-    """
     data_parse.load_vocab()
     
     start_token_id = data_parse.get_special_token_id("<TALK_START>")
@@ -66,12 +61,10 @@ def generate_response(input_text):
         decoder_input = output_seq + [pad_token_id] * dec_pad_len
         dec_in_array = np.array([decoder_input])
         
-        # Predict (Thread-safe)
         with model_lock:
             preds = m([encoder_input, dec_in_array], training=False)
             preds = preds.numpy()
         
-        # Get prediction for the last valid token
         current_step_idx = len(output_seq) - 1
         next_token_probs = preds[0, current_step_idx, :]
         next_token = np.argmax(next_token_probs)
@@ -94,10 +87,9 @@ def get_train_batch(limit=100):
         for _ in range(limit):
             example = next(train_iterator)
             text = example['text']
-            if text.strip(): # Skip empty lines
+            if text.strip():
                 texts.append(text)
     except StopIteration:
-        # If dataset ends, reload
         dataset = load_dataset('roneneldan/TinyStories', split='train', streaming=True)
         train_iterator = iter(dataset)
         
@@ -109,7 +101,6 @@ def training_cycle():
     
     while not stop_event.is_set():
         cycle_count += 1
-        # 1. Train Step
         texts = get_train_batch(limit=100)
         if not texts:
             continue
@@ -117,7 +108,6 @@ def training_cycle():
         tokenized_texts = data_parse.tonkenizer(texts)
         
         with model_lock:
-            # Get dynamic token IDs ensure we match the tokenizer
             t_start = data_parse.get_special_token_id("<TALK_START>")
             t_end = data_parse.get_special_token_id("<TALK_END>")
             t_pad = data_parse.get_special_token_id("<PAD>")
@@ -130,23 +120,18 @@ def training_cycle():
                 pad_token_id=t_pad
             )
         
-        # 2. Test Step
         acc = test(samples=50)
         current_accuracy = acc
         
-        # Explicit Garbage Collection to prevent memory creep
         gc.collect()
 
-        # Pause logic: 5 minute break every 5 cycles, otherwise 60s
         sleep_time = 300 if cycle_count % 10 == 0 else 60
         if stop_event.wait(timeout=sleep_time):
             break
     
-    # Final cleanup
     with model_lock:
         m.save("transformer_model_final.keras")
     training_active = False
-    # Worker thread ends here naturally
 
 def start_training():
     global training_active, stop_event, worker_thread
@@ -156,7 +141,7 @@ def start_training():
     stop_event.clear()
     training_active = True
     worker_thread = threading.Thread(target=training_cycle)
-    worker_thread.daemon = True # Close if main program closes violently
+    worker_thread.daemon = True
     worker_thread.start()
 
 def stop_training():
@@ -174,28 +159,23 @@ def test(samples=50):
         dataset = load_dataset('roneneldan/TinyStories', split='validation', streaming=True)
         test_iterator = iter(dataset)
     
-    # print(f"Collecting {samples} test samples...")
     texts = []
     count = 0
     try:
-        for _ in range(samples * 2): # Look at up to 2x samples to find non-empty ones
+        for _ in range(samples * 2):
             example = next(test_iterator)
             text = example['text']
-            if text.strip(): # Skip empty lines
+            if text.strip():
                 texts.append(text)
                 count += 1
             if count >= samples:
                 break
     except StopIteration:
-         # Reload if iterator runs out
          dataset = load_dataset('roneneldan/TinyStories', split='validation', streaming=True)
          test_iterator = iter(dataset)
     
-    # Tokenize
     tokenized_texts = data_parse.tonkenizer(texts)
     
-    # Prepare Data Arrays (Same logic as trainer.pretrain_autoencoder)
-    # Get dynamic token IDs
     pad_token_id = data_parse.get_special_token_id("<PAD>")
     start_token_id = data_parse.get_special_token_id("<TALK_START>")
     end_token_id = data_parse.get_special_token_id("<TALK_END>")
@@ -209,12 +189,10 @@ def test(samples=50):
         enc_pad_len = model.MAX_LENGTH - len(seq)
         enc_in = seq + [pad_token_id] * enc_pad_len
         
-        # Decoder Input: <START> + seq
         dec_in_pad = enc_pad_len - 1 if enc_pad_len > 0 else 0
         dec_in = [start_token_id] + seq + [pad_token_id] * dec_in_pad
         dec_in = dec_in[:model.MAX_LENGTH]
         
-        # Target: seq + <END>
         target = seq + [end_token_id] + [pad_token_id] * dec_in_pad
         target = target[:model.MAX_LENGTH]
         
@@ -227,7 +205,6 @@ def test(samples=50):
     decoder_inputs = np.array(decoder_inputs)
     decoder_targets = np.array(decoder_targets)
     
-    # Evaluate returns [loss, accuracy]
     with model_lock:
         results = m.evaluate([encoder_inputs, decoder_inputs], decoder_targets, verbose=0)
     
