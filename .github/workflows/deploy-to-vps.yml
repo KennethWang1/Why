@@ -30,6 +30,7 @@ jobs:
             cd ${{ secrets.VPS_REPO_PATH }}
             git fetch origin master
             git reset --hard origin/master
+            chmod +x run.sh
             ./run.sh
             # Optional: Add post-pull steps (e.g., restart a service: sudo systemctl restart myapp)
           EOF
