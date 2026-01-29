@@ -133,7 +133,7 @@ def training_cycle():
         if cycle_count % 5 == 0:
             time.sleep(300)
         else:
-            time.sleep(20)
+            time.sleep(45)
     
     # Final cleanup
     with model_lock:
