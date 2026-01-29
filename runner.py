@@ -1,0 +1,196 @@
+import data_parse
+import trainer
+import model
+from datasets import load_dataset
+import numpy as np
+import threading
+import time
+import sys
+
+# Global state
+training_active = False
+stop_requested = False
+current_accuracy = 0.0
+worker_thread = None
+train_iterator = None
+model_lock = threading.Lock()
+
+m = model.build_transformer_model()
+
+def generate_response(input_text):
+    """
+    Generates a response from the model based on the input text.
+    Uses a Greedy Decode strategy.
+    """
+    data_parse.load_vocab()
+    id_to_word = {v: k for k, v in data_parse.vocab.items()}
+    start_token_id = 0 
+    end_token_id = 1  
+    pad_token_id = 4
+
+    # Tokenize input
+    tokenized_seq = data_parse.tonkenizer([input_text])[0]
+    
+    # Prepare Encoder Input (Pad to MAX_LENGTH)
+    enc_pad_len = model.MAX_LENGTH - len(tokenized_seq)
+    if enc_pad_len < 0:
+        enc_in = tokenized_seq[:model.MAX_LENGTH]
+    else:
+        enc_in = tokenized_seq + [pad_token_id] * enc_pad_len
+        
+    encoder_input = np.array([enc_in])
+    
+    # Decoder Input Initialization
+    output_seq = [start_token_id]
+    
+    decoded_sentence = []
+
+    # Greedy Generation Loop
+    for _ in range(model.MAX_LENGTH):
+        dec_pad_len = model.MAX_LENGTH - len(output_seq)
+        if dec_pad_len < 0:
+            break
+            
+        decoder_input = output_seq + [pad_token_id] * dec_pad_len
+        dec_in_array = np.array([decoder_input])
+        
+        # Predict (Thread-safe)
+        with model_lock:
+            preds = m.predict([encoder_input, dec_in_array], verbose=0)
+        
+        # Get prediction for the last valid token
+        current_step_idx = len(output_seq) - 1
+        next_token_probs = preds[0, current_step_idx, :]
+        next_token = np.argmax(next_token_probs)
+        
+        if next_token == end_token_id:
+            break
+        
+        output_seq.append(next_token)
+        
+        word = id_to_word.get(next_token, f"")
+        if word not in ["<TALK_START>", "<TALK_END>"]:
+             decoded_sentence.append(word)
+
+    return " ".join(decoded_sentence)
+
+def get_train_batch(limit=1000):
+    global train_iterator
+    if train_iterator is None:
+        dataset = load_dataset('roneneldan/TinyStories', split='train', streaming=True)
+        train_iterator = iter(dataset)
+    
+    texts = []
+    try:
+        for _ in range(limit):
+            example = next(train_iterator)
+            text = example['text']
+            if text.strip(): # Skip empty lines
+                texts.append(text)
+    except StopIteration:
+        # If dataset ends, reload
+        dataset = load_dataset('roneneldan/TinyStories', split='train', streaming=True)
+        train_iterator = iter(dataset)
+        
+    return texts
+
+def training_cycle():
+    global current_accuracy, stop_requested, training_active, m
+    
+    while not stop_requested:
+        # 1. Train Step
+        texts = get_train_batch(limit=500)
+        if not texts:
+            continue
+            
+        tokenized_texts = data_parse.tonkenizer(texts)
+        
+        with model_lock:
+            trainer.pretrain_autoencoder(tokenized_texts, model=m)
+        
+        # 2. Test Step
+        acc = test(samples=100)
+        current_accuracy = acc
+    
+    # Final cleanup
+    with model_lock:
+        m.save("transformer_model_final.h5")
+    training_active = False
+    worker_thread.sleep(10000)
+
+def start_training():
+    global training_active, stop_requested, worker_thread
+    if training_active:
+        return
+
+    stop_requested = False
+    training_active = True
+    worker_thread = threading.Thread(target=training_cycle)
+    worker_thread.daemon = True # Close if main program closes violently
+    worker_thread.start()
+
+def stop_training():
+    global stop_requested
+    if not training_active:
+        return
+    stop_requested = True
+
+def get_current_accuracy():
+    return current_accuracy
+
+def test(samples=100):
+    data_parse.load_vocab()
+    dataset = load_dataset('roneneldan/TinyStories', split='test', streaming=True)
+    
+    # print(f"Collecting {samples} test samples...")
+    texts = []
+    count = 0
+    for example in dataset:
+        text = example['text']
+        if text.strip(): # Skip empty lines
+            texts.append(text)
+            count += 1
+        if count >= samples:
+            break
+    
+    # Tokenize
+    tokenized_texts = data_parse.tonkenizer(texts)
+    
+    # Prepare Data Arrays (Same logic as trainer.pretrain_autoencoder)
+    pad_token_id = 4
+    start_token_id = 0
+    end_token_id = 1
+    
+    encoder_inputs = []
+    decoder_inputs = []
+    decoder_targets = []
+    
+    for seq in tokenized_texts:
+        seq = list(seq[:model.MAX_LENGTH-2])
+        enc_pad_len = model.MAX_LENGTH - len(seq)
+        enc_in = seq + [pad_token_id] * enc_pad_len
+        
+        # Decoder Input: <START> + seq
+        dec_in_pad = enc_pad_len - 1 if enc_pad_len > 0 else 0
+        dec_in = [start_token_id] + seq + [pad_token_id] * dec_in_pad
+        dec_in = dec_in[:model.MAX_LENGTH]
+        
+        # Target: seq + <END>
+        target = seq + [end_token_id] + [pad_token_id] * dec_in_pad
+        target = target[:model.MAX_LENGTH]
+        
+        encoder_inputs.append(enc_in)
+        decoder_inputs.append(dec_in)
+        decoder_targets.append(target)
+        
+    encoder_inputs = np.array(encoder_inputs)
+    decoder_inputs = np.array(decoder_inputs)
+    decoder_targets = np.array(decoder_targets)
+    
+    # Evaluate returns [loss, accuracy]
+    with model_lock:
+        results = m.evaluate([encoder_inputs, decoder_inputs], decoder_targets, verbose=0)
+    
+    accuracy = results[1]
+    return accuracy
+
