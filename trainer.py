@@ -35,7 +35,7 @@ def pretrain_autoencoder(tokenized_texts, model=None, start_token_id=0, end_toke
     decoder_targets = []
     
     for seq in tokenized_texts:
-        seq = list(seq[:MAX_LENGTH-2])
+        seq = list(seq[-(MAX_LENGTH-2):])
         
         enc_pad_len = MAX_LENGTH - len(seq)
         enc_in = seq + [pad_token_id] * enc_pad_len

@@ -45,7 +45,7 @@ def generate_response(input_text):
     
     enc_pad_len = model.MAX_LENGTH - len(tokenized_seq)
     if enc_pad_len < 0:
-        enc_in = tokenized_seq[:model.MAX_LENGTH]
+        enc_in = tokenized_seq[-model.MAX_LENGTH:]
     else:
         enc_in = tokenized_seq + [pad_token_id] * enc_pad_len
         
@@ -185,7 +185,7 @@ def test(samples=50):
     decoder_targets = []
     
     for seq in tokenized_texts:
-        seq = list(seq[:model.MAX_LENGTH-2])
+        seq = list(seq[-(model.MAX_LENGTH-2):])
         enc_pad_len = model.MAX_LENGTH - len(seq)
         enc_in = seq + [pad_token_id] * enc_pad_len
         
