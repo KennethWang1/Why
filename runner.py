@@ -125,7 +125,7 @@ def training_cycle():
         
         gc.collect()
 
-        sleep_time = 300 if cycle_count % 10 == 0 else 60
+        sleep_time = 300 if cycle_count % 5 == 0 else 60
         if stop_event.wait(timeout=sleep_time):
             break
     
