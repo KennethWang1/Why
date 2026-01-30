@@ -77,14 +77,13 @@ async def on_message(message):
         print(f"Error processing message: {e}")
         await message.channel.send(f'an error occurred: {e}')
 
-
 if __name__ == '__main__':
     data_parse.load_vocab()
     token = os.getenv('DISCORD_TOKEN')
     if token:
         try:
             bot.run(token)
-        finally:
-            data_parse.save_vocab()
+        except Exception as e:
+            print(f"Error running bot: {e}")
     else:
         print("Error: DISCORD_TOKEN not found in .env file.")

@@ -64,9 +64,6 @@ def load_or_train_tokenizer():
 def load_vocab():
     load_or_train_tokenizer()
 
-def save_vocab():
-    pass
-
 vocab_lock = tokenizer_lock 
 vocab = {} 
 
@@ -92,8 +89,7 @@ def get_special_token_id(token):
     id = tokenizer.token_to_id(token)
     return id if id is not None else 4
 
-
+#legacy
 async def getMessage(message):
-
-    await message.channel.send(f'Received your message: {message.content}')
+    #await message.channel.send(f'Received your message: {message.content}')
     return True

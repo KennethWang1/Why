@@ -16,6 +16,8 @@ current_accuracy = 0.0
 worker_thread = None
 train_iterator = None
 test_iterator = None
+pair_buffer = []
+test_pair_buffer = []
 model_lock = threading.Lock()
 
 model_path = "transformer_model_final.keras"
@@ -76,24 +78,59 @@ def generate_response(input_text):
 
     return data_parse.decode(output_seq[1:])
 
+import re
+
+def parse_chatml(text):
+    parts = text.split("<|im_start|>")
+    user_msg = ""
+    assistant_msg = ""
+    
+    for part in parts:
+        if part.startswith("user"):
+            user_msg = part.replace("user\n", "").replace("<|im_end|>\n", "").replace("<|im_end|>", "").strip()
+        elif part.startswith("assistant"):
+            raw = part.replace("assistant\n", "").replace("<|im_end|>\n", "").replace("<|im_end|>", "").strip()
+            # Remove think blocks
+            assistant_msg = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
+            
+    if user_msg and assistant_msg:
+        return [(user_msg, assistant_msg)]
+    return []
+
 def get_train_batch(limit=100):
-    global train_iterator
+    global train_iterator, pair_buffer
     if train_iterator is None:
-        dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='train', streaming=True)
+        dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
         train_iterator = iter(dataset)
     
-    texts = []
+    batch = []
+    
+    # Fill from buffer first
+    if pair_buffer:
+        take = min(len(pair_buffer), limit)
+        batch.extend(pair_buffer[:take])
+        pair_buffer = pair_buffer[take:]
+        
     try:
-        for _ in range(limit):
+        while len(batch) < limit:
             example = next(train_iterator)
             text = example['text']
-            if text.strip():
-                texts.append(text)
+            new_pairs = parse_chatml(text)
+            
+            # Add to batch and buffer remainder
+            needed = limit - len(batch)
+            if len(new_pairs) > needed:
+                batch.extend(new_pairs[:needed])
+                pair_buffer.extend(new_pairs[needed:])
+                break
+            else:
+                batch.extend(new_pairs)
+
     except StopIteration:
-        dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='train', streaming=True)
+        dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
         train_iterator = iter(dataset)
         
-    return texts
+    return batch
 
 def training_cycle():
     global current_accuracy, stop_event, training_active, m
@@ -101,19 +138,25 @@ def training_cycle():
     
     while not stop_event.is_set():
         cycle_count += 1
-        texts = get_train_batch(limit=100)
-        if not texts:
+        pairs = get_train_batch(limit=100) # Returns (input, target) list
+        if not pairs:
             continue
             
-        tokenized_texts = data_parse.tonkenizer(texts)
+        inputs = [p[0] for p in pairs]
+        targets = [p[1] for p in pairs]
+
+        tokenized_inputs = data_parse.tonkenizer(inputs)
+        tokenized_targets = data_parse.tonkenizer(targets)
+        
+        tokenized_pairs = list(zip(tokenized_inputs, tokenized_targets))
         
         with model_lock:
             t_start = data_parse.get_special_token_id("<TALK_START>")
             t_end = data_parse.get_special_token_id("<TALK_END>")
             t_pad = data_parse.get_special_token_id("<PAD>")
             
-            trainer.pretrain_autoencoder(
-                tokenized_texts, 
+            trainer.train_pairs(
+                tokenized_pairs, 
                 model=m,
                 start_token_id=t_start,
                 end_token_id=t_end,
@@ -154,27 +197,43 @@ def get_current_accuracy():
     return current_accuracy
 
 def test(samples=50):
-    global test_iterator
+    global test_iterator, test_pair_buffer
     if test_iterator is None:
-        dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='validation', streaming=True)
+        dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
         test_iterator = iter(dataset)
     
-    texts = []
-    count = 0
+    pairs = []
+    if test_pair_buffer:
+        take = min(len(test_pair_buffer), samples)
+        pairs.extend(test_pair_buffer[:take])
+        test_pair_buffer = test_pair_buffer[take:]
+    
     try:
-        for _ in range(samples * 2):
+        while len(pairs) < samples:
             example = next(test_iterator)
             text = example['text']
-            if text.strip():
-                texts.append(text)
-                count += 1
-            if count >= samples:
+            new_pairs = parse_chatml(text)
+
+            needed = samples - len(pairs)
+            if len(new_pairs) > needed:
+                pairs.extend(new_pairs[:needed])
+                test_pair_buffer.extend(new_pairs[needed:])
                 break
+            else:
+                pairs.extend(new_pairs)
+
     except StopIteration:
-         dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='validation', streaming=True)
+         dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
          test_iterator = iter(dataset)
     
-    tokenized_texts = data_parse.tonkenizer(texts)
+    if not pairs:
+        return 0.0
+
+    inputs = [p[0] for p in pairs]
+    targets = [p[1] for p in pairs]
+
+    tokenized_inputs = data_parse.tonkenizer(inputs)
+    tokenized_targets = data_parse.tonkenizer(targets)
     
     pad_token_id = data_parse.get_special_token_id("<PAD>")
     start_token_id = data_parse.get_special_token_id("<TALK_START>")
@@ -184,22 +243,31 @@ def test(samples=50):
     decoder_inputs = []
     decoder_targets = []
     
-    for seq in tokenized_texts:
-        seq = list(seq[-(model.MAX_LENGTH-2):])
-        enc_pad_len = model.MAX_LENGTH - len(seq)
-        enc_in = seq + [pad_token_id] * enc_pad_len
+    for input_seq, target_seq in zip(tokenized_inputs, tokenized_targets):
         
-        dec_in_pad = enc_pad_len - 1 if enc_pad_len > 0 else 0
-        dec_in = [start_token_id] + seq + [pad_token_id] * dec_in_pad
-        dec_in = dec_in[:model.MAX_LENGTH]
+        # Encoder Input
+        enc_pad_len = model.MAX_LENGTH - len(input_seq)
+        if enc_pad_len < 0:
+            input_seq = input_seq[-model.MAX_LENGTH:]
+            enc_pad_len = 0
+        enc_in = input_seq + [pad_token_id] * enc_pad_len
         
-        target = seq + [end_token_id] + [pad_token_id] * dec_in_pad
-        target = target[:model.MAX_LENGTH]
+        # Decoder Input
+        target_seq_chopped = target_seq[:model.MAX_LENGTH-1] # reserve 1 for START/END
+        
+        dec_pad_len = model.MAX_LENGTH - (len(target_seq_chopped) + 1)
+        if dec_pad_len < 0: dec_pad_len = 0 
+        
+        dec_in = [start_token_id] + target_seq_chopped + [pad_token_id] * dec_pad_len
+        
+        # Decoder Target
+        target_seq_for_loss = target_seq_chopped + [end_token_id]
+        
+        target = target_seq_for_loss + [pad_token_id] * dec_pad_len
         
         encoder_inputs.append(enc_in)
         decoder_inputs.append(dec_in)
         decoder_targets.append(target)
-        print(dec_in)
         
     encoder_inputs = np.array(encoder_inputs)
     decoder_inputs = np.array(decoder_inputs)
@@ -217,7 +285,7 @@ if __name__ == "__main__":
         optimizer = keras.optimizers.Adam(learning_rate=trainer.LEARNING_RATE)
         loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
         m.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
-        print(test(samples = 50))
+        training_cycle()
     finally:
         test_iterator = None
         train_iterator = None

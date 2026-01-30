@@ -56,3 +56,40 @@ def pretrain_autoencoder(tokenized_texts, model=None, start_token_id=0, end_toke
     
     return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="pretrained_model.keras", model=model)
 
+def train_pairs(tokenized_pairs, model=None, start_token_id=0, end_token_id=1, pad_token_id=4):
+    encoder_inputs = []
+    decoder_inputs = []
+    decoder_targets = []
+    
+    for input_seq, target_seq in tokenized_pairs:
+        # Encoder Input: just the input sequence
+        enc_pad_len = MAX_LENGTH - len(input_seq)
+        if enc_pad_len < 0:
+            input_seq = input_seq[-MAX_LENGTH:]
+            enc_pad_len = 0
+            
+        enc_in = input_seq + [pad_token_id] * enc_pad_len
+        
+        # Decoder Input: START + target sequence
+        target_seq_chopped = target_seq[:MAX_LENGTH-1] # reserve 1 for START/END
+        
+        dec_pad_len = MAX_LENGTH - (len(target_seq_chopped) + 1)
+        if dec_pad_len < 0: dec_pad_len = 0 
+        
+        dec_in = [start_token_id] + target_seq_chopped + [pad_token_id] * dec_pad_len
+        
+        # Decoder Target: target sequence + END
+        target_seq_for_loss = target_seq_chopped + [end_token_id]
+        
+        target = target_seq_for_loss + [pad_token_id] * dec_pad_len
+        
+        encoder_inputs.append(enc_in)
+        decoder_inputs.append(dec_in)
+        decoder_targets.append(target)
+        
+    encoder_inputs = np.array(encoder_inputs, dtype=np.int32)
+    decoder_inputs = np.array(decoder_inputs, dtype=np.int32)
+    decoder_targets = np.array(decoder_targets, dtype=np.int32)
+
+    return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="transformer_model_final.keras", model=model)
+
