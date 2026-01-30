@@ -79,7 +79,7 @@ def generate_response(input_text):
 def get_train_batch(limit=100):
     global train_iterator
     if train_iterator is None:
-        dataset = load_dataset('roneneldan/TinyStories', split='train', streaming=True)
+        dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='train', streaming=True)
         train_iterator = iter(dataset)
     
     texts = []
@@ -90,7 +90,7 @@ def get_train_batch(limit=100):
             if text.strip():
                 texts.append(text)
     except StopIteration:
-        dataset = load_dataset('roneneldan/TinyStories', split='train', streaming=True)
+        dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='train', streaming=True)
         train_iterator = iter(dataset)
         
     return texts
@@ -156,7 +156,7 @@ def get_current_accuracy():
 def test(samples=50):
     global test_iterator
     if test_iterator is None:
-        dataset = load_dataset('roneneldan/TinyStories', split='validation', streaming=True)
+        dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='validation', streaming=True)
         test_iterator = iter(dataset)
     
     texts = []
@@ -171,7 +171,7 @@ def test(samples=50):
             if count >= samples:
                 break
     except StopIteration:
-         dataset = load_dataset('roneneldan/TinyStories', split='validation', streaming=True)
+         dataset = load_dataset("Salesforce/wikitext", "wikitext-103-v1", split='validation', streaming=True)
          test_iterator = iter(dataset)
     
     tokenized_texts = data_parse.tonkenizer(texts)
