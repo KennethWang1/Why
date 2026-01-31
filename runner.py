@@ -140,11 +140,6 @@ def training_cycle():
             continue
             
         inputs = [p[0] for p in pairs]
-        
-        # RAG Embedding calculation is slow and currently unused for generation.
-        # Disabling to speed up training loop.
-        # for t in inputs:
-        #      data_parse.add_embeddings(t)
              
         targets = [p[1] for p in pairs]
 
@@ -171,8 +166,7 @@ def training_cycle():
         
         gc.collect()
 
-        sleep_time = 300 if cycle_count % 5 == 0 else 60
-        # Clear RAG memory during the longer sleep to prevent infinite growth
+        sleep_time = 600 if cycle_count % 5 == 0 else 120
         if cycle_count % 5 == 0:
             data_parse.clear_memory()
             
