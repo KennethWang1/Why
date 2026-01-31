@@ -105,10 +105,8 @@ def get_train_batch(limit=100):
     
     # Initialize / Load data if empty
     if not pair_buffer and train_iterator is None:
-        print("Loading local data from data/ folder...")
         convs = data_parse.load_all_conversations("data")
         all_pairs = data_parse.generate_pairs(convs)
-        print(f"Loaded {len(all_pairs)} pairs.")
         random.shuffle(all_pairs)
         pair_buffer = all_pairs
     
@@ -116,16 +114,12 @@ def get_train_batch(limit=100):
     
     global all_training_pairs
     if 'all_training_pairs' not in globals() or not all_training_pairs:
-        print("Loading local data from data/ folder...")
         convs = data_parse.load_all_conversations("data")
         all_training_pairs = data_parse.generate_pairs(convs)
-        print(f"Loaded {len(all_training_pairs)} pairs.")
         random.shuffle(all_training_pairs)
         pair_buffer = list(all_training_pairs)
     
     if not pair_buffer:
-         # End of epoch, reshuffle
-         print("Epoch complete, reshuffling...")
          random.shuffle(all_training_pairs)
          pair_buffer = list(all_training_pairs)
          
