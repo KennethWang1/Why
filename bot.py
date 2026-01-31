@@ -62,7 +62,8 @@ async def on_message(message):
         
         try:
             response = await bot.loop.run_in_executor(None, runner.generate_response, input_text)
-            
+            data_parse.add_embeddings(input_text)
+            data_parse.add_embeddings(response)
             if response.strip():
                 await message.channel.send(response)
             else:

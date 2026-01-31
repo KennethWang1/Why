@@ -43,9 +43,10 @@ def generate_response(input_text):
     end_token_id = data_parse.get_special_token_id("<TALK_END>")
     pad_token_id = data_parse.get_special_token_id("<PAD>")
 
-    tokenized_seq = data_parse.tonkenizer([input_text])[0]
+    tokenized_seq = data_parse.create_context(input_text)
     
     enc_pad_len = model.MAX_LENGTH - len(tokenized_seq)
+    
     if enc_pad_len < 0:
         enc_in = tokenized_seq[-model.MAX_LENGTH:]
     else:
@@ -90,7 +91,6 @@ def parse_chatml(text):
             user_msg = part.replace("user\n", "").replace("<|im_end|>\n", "").replace("<|im_end|>", "").strip()
         elif part.startswith("assistant"):
             raw = part.replace("assistant\n", "").replace("<|im_end|>\n", "").replace("<|im_end|>", "").strip()
-            # Remove think blocks
             assistant_msg = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
             
     if user_msg and assistant_msg:
@@ -105,7 +105,6 @@ def get_train_batch(limit=100):
     
     batch = []
     
-    # Fill from buffer first
     if pair_buffer:
         take = min(len(pair_buffer), limit)
         batch.extend(pair_buffer[:take])
@@ -117,7 +116,6 @@ def get_train_batch(limit=100):
             text = example['text']
             new_pairs = parse_chatml(text)
             
-            # Add to batch and buffer remainder
             needed = limit - len(batch)
             if len(new_pairs) > needed:
                 batch.extend(new_pairs[:needed])
@@ -143,6 +141,11 @@ def training_cycle():
             continue
             
         inputs = [p[0] for p in pairs]
+        
+        # Add inputs to RAG Memory
+        for t in inputs:
+             data_parse.add_embeddings(t)
+             
         targets = [p[1] for p in pairs]
 
         tokenized_inputs = data_parse.tonkenizer(inputs)
@@ -232,7 +235,10 @@ def test(samples=50):
     inputs = [p[0] for p in pairs]
     targets = [p[1] for p in pairs]
 
-    tokenized_inputs = data_parse.tonkenizer(inputs)
+    tokenized_inputs = [] 
+    for inp in inputs:
+        tokenized_inputs.append(data_parse.create_context(inp))
+        
     tokenized_targets = data_parse.tonkenizer(targets)
     
     pad_token_id = data_parse.get_special_token_id("<PAD>")
@@ -245,14 +251,12 @@ def test(samples=50):
     
     for input_seq, target_seq in zip(tokenized_inputs, tokenized_targets):
         
-        # Encoder Input
         enc_pad_len = model.MAX_LENGTH - len(input_seq)
         if enc_pad_len < 0:
             input_seq = input_seq[-model.MAX_LENGTH:]
             enc_pad_len = 0
         enc_in = input_seq + [pad_token_id] * enc_pad_len
         
-        # Decoder Input
         target_seq_chopped = target_seq[:model.MAX_LENGTH-1] # reserve 1 for START/END
         
         dec_pad_len = model.MAX_LENGTH - (len(target_seq_chopped) + 1)
@@ -260,9 +264,7 @@ def test(samples=50):
         
         dec_in = [start_token_id] + target_seq_chopped + [pad_token_id] * dec_pad_len
         
-        # Decoder Target
         target_seq_for_loss = target_seq_chopped + [end_token_id]
-        
         target = target_seq_for_loss + [pad_token_id] * dec_pad_len
         
         encoder_inputs.append(enc_in)

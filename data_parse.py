@@ -3,10 +3,19 @@ import threading
 from tokenizers import Tokenizer, models, pre_tokenizers, decoders, trainers, processors
 from datasets import load_dataset
 import model
+from sentence_transformers import SentenceTransformer
+import numpy as np
+import faiss
+
+m = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 tokenizer = None
 tokenizer_lock = threading.Lock()
 VOCAB_FILE = "tokenizer.json"
+
+index = faiss.IndexFlatL2(384)
+stored_tokens_map = {}
+entry_count = 0
 
 SPECIAL_TOKENS = ["<TALK_START>", "<TALK_END>", "<THINK_START>", "<THINK_END>", "<PAD>"]
 
@@ -93,3 +102,64 @@ def get_special_token_id(token):
 async def getMessage(message):
     #await message.channel.send(f'Received your message: {message.content}')
     return True
+
+def add_embeddings(text):
+    global m, index, stored_tokens_map, entry_count
+    
+    # Encode and normalize
+    embedding = m.encode(text)
+    faiss.normalize_L2(np.array([embedding])) # Verify length is not 1 by normalizing to 1
+    
+    # Add to FAISS
+    index.add(np.array([embedding]))
+    
+    # Store text correspondence
+    stored_tokens_map[entry_count] = tonkenizer([text])[0]
+    entry_count += 1
+    return True
+
+def rag(message):
+    global m
+    message_embeddings = m.encode(message)
+    return message_embeddings
+
+def create_context(message):
+    global m, index, stored_tokens_map
+    
+    query_vec = m.encode([message])
+    faiss.normalize_L2(query_vec)
+    
+    if index.ntotal > 0:
+        D, I = index.search(query_vec, k=min(5, index.ntotal))
+        indices = I[0]
+        distances = D[0]
+    else:
+        indices = []
+        distances = []
+    
+    tokenized_query = tonkenizer([message])[0]
+    start_token_id = get_special_token_id("<TALK_START>")
+    
+    available_tokens = 126 - len(tokenized_query)
+    context_tokens = []
+
+    for i, idx in enumerate(indices):
+        if idx == -1: continue
+        
+        if distances[i] > 1.2: 
+            continue
+            
+        retrieved_seq = stored_tokens_map[idx]
+        
+        if available_tokens - len(retrieved_seq) < 0:
+            continue
+
+        context_tokens.extend(retrieved_seq)
+        available_tokens -= len(retrieved_seq)
+    
+    final_input = context_tokens + tokenized_query
+    
+    if len(final_input) > 128:
+       final_input = final_input[-128:]
+       
+    return final_input
