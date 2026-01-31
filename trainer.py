@@ -6,7 +6,7 @@ from model import build_transformer_model, MAX_LENGTH
 
 LEARNING_RATE = 0.001
 BATCH_SIZE = 12
-EPOCHS = 4
+EPOCHS = 2
 
 def train_transformer(encoder_input_data, decoder_input_data, decoder_target_data, model=None, save_path="transformer_model.keras"):
     if model is None:

@@ -141,9 +141,10 @@ def training_cycle():
             
         inputs = [p[0] for p in pairs]
         
-        # Add inputs to RAG Memory
-        for t in inputs:
-             data_parse.add_embeddings(t)
+        # RAG Embedding calculation is slow and currently unused for generation.
+        # Disabling to speed up training loop.
+        # for t in inputs:
+        #      data_parse.add_embeddings(t)
              
         targets = [p[1] for p in pairs]
 
