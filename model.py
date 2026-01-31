@@ -4,12 +4,20 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
-VOCAB_SIZE = 12500
+try:
+    from tensorflow.keras import mixed_precision
+    policy = mixed_precision.Policy('mixed_float16')
+    mixed_precision.set_global_policy(policy)
+except:
+    pass
+
+VOCAB_SIZE = 15000  
 MAX_LENGTH = 128
-EMBED_DIM = 128
+EMBED_DIM = 256    
 NUM_HEADS = 4
-FF_DIM = 512
-NUM_LAYERS = 2
+FF_DIM = 1024     
+NUM_ENCODER_LAYERS = 6 
+NUM_DECODER_LAYERS = 2 
 DROPOUT_RATE = 0.1
 
 class TokenAndPositionEmbedding(layers.Layer):
@@ -71,7 +79,7 @@ def build_transformer_model():
     encoder_inputs = keras.Input(shape=(None,), dtype="int64", name="encoder_inputs")
     x = TokenAndPositionEmbedding(MAX_LENGTH, VOCAB_SIZE, EMBED_DIM)(encoder_inputs)
     
-    for _ in range(NUM_LAYERS):
+    for _ in range(NUM_ENCODER_LAYERS):
         x = transformer_encoder_layer(x, EMBED_DIM, NUM_HEADS, FF_DIM, DROPOUT_RATE)
     
     encoder_outputs = x
@@ -79,10 +87,10 @@ def build_transformer_model():
     decoder_inputs = keras.Input(shape=(None,), dtype="int64", name="decoder_inputs")
     x_dec = TokenAndPositionEmbedding(MAX_LENGTH, VOCAB_SIZE, EMBED_DIM)(decoder_inputs)
     
-    for _ in range(NUM_LAYERS):
+    for _ in range(NUM_DECODER_LAYERS):
         x_dec = transformer_decoder_layer(x_dec, encoder_outputs, EMBED_DIM, NUM_HEADS, FF_DIM, DROPOUT_RATE)
 
-    decoder_outputs = layers.Dense(VOCAB_SIZE, activation="softmax")(x_dec)
+    decoder_outputs = layers.Dense(VOCAB_SIZE, activation="softmax", dtype="float32")(x_dec)
 
     model = keras.Model([encoder_inputs, decoder_inputs], decoder_outputs, name="transformer")
     return model

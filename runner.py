@@ -43,7 +43,7 @@ def generate_response(input_text):
     end_token_id = data_parse.get_special_token_id("<TALK_END>")
     pad_token_id = data_parse.get_special_token_id("<PAD>")
 
-    tokenized_seq = data_parse.create_context(input_text)
+    tokenized_seq = data_parse.tonkenizer([input_text])[0]
     
     enc_pad_len = model.MAX_LENGTH - len(tokenized_seq)
     
@@ -97,36 +97,41 @@ def parse_chatml(text):
         return [(user_msg, assistant_msg)]
     return []
 
+
+import random
+
 def get_train_batch(limit=100):
     global train_iterator, pair_buffer
-    if train_iterator is None:
-        dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
-        train_iterator = iter(dataset)
+    
+    # Initialize / Load data if empty
+    if not pair_buffer and train_iterator is None:
+        print("Loading local data from data/ folder...")
+        convs = data_parse.load_all_conversations("data")
+        all_pairs = data_parse.generate_pairs(convs)
+        print(f"Loaded {len(all_pairs)} pairs.")
+        random.shuffle(all_pairs)
+        pair_buffer = all_pairs
     
     batch = []
     
-    if pair_buffer:
-        take = min(len(pair_buffer), limit)
-        batch.extend(pair_buffer[:take])
-        pair_buffer = pair_buffer[take:]
-        
-    try:
-        while len(batch) < limit:
-            example = next(train_iterator)
-            text = example['text']
-            new_pairs = parse_chatml(text)
-            
-            needed = limit - len(batch)
-            if len(new_pairs) > needed:
-                batch.extend(new_pairs[:needed])
-                pair_buffer.extend(new_pairs[needed:])
-                break
-            else:
-                batch.extend(new_pairs)
-
-    except StopIteration:
-        dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
-        train_iterator = iter(dataset)
+    global all_training_pairs
+    if 'all_training_pairs' not in globals() or not all_training_pairs:
+        print("Loading local data from data/ folder...")
+        convs = data_parse.load_all_conversations("data")
+        all_training_pairs = data_parse.generate_pairs(convs)
+        print(f"Loaded {len(all_training_pairs)} pairs.")
+        random.shuffle(all_training_pairs)
+        pair_buffer = list(all_training_pairs)
+    
+    if not pair_buffer:
+         # End of epoch, reshuffle
+         print("Epoch complete, reshuffling...")
+         random.shuffle(all_training_pairs)
+         pair_buffer = list(all_training_pairs)
+         
+    take = min(len(pair_buffer), limit)
+    batch = pair_buffer[:take]
+    pair_buffer = pair_buffer[take:]
         
     return batch
 
@@ -172,6 +177,10 @@ def training_cycle():
         gc.collect()
 
         sleep_time = 300 if cycle_count % 5 == 0 else 60
+        # Clear RAG memory during the longer sleep to prevent infinite growth
+        if cycle_count % 5 == 0:
+            data_parse.clear_memory()
+            
         if stop_event.wait(timeout=sleep_time):
             break
     

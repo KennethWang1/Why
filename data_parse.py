@@ -1,5 +1,7 @@
 import os
 import threading
+import json
+import glob
 from tokenizers import Tokenizer, models, pre_tokenizers, decoders, trainers, processors
 from datasets import load_dataset
 import model
@@ -118,6 +120,13 @@ def add_embeddings(text):
     entry_count += 1
     return True
 
+def clear_memory():
+    global index, stored_tokens_map, entry_count
+    index = faiss.IndexFlatL2(384)
+    stored_tokens_map.clear()
+    entry_count = 0
+    print("RAG Memory cleared.")
+
 def rag(message):
     global m
     message_embeddings = m.encode(message)
@@ -159,7 +168,90 @@ def create_context(message):
     
     final_input = context_tokens + tokenized_query
     
-    if len(final_input) > 128:
-       final_input = final_input[-128:]
+    if len(final_input) > 256:
+       final_input = final_input[-256:]
        
     return final_input
+
+def load_from_json(file_path):
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    messages = data.get('messages', [])
+    # Sort by timestamp just in case, though usually they are ordered
+    # messages.sort(key=lambda x: x['timestamp'])
+    
+    conversation = []
+    
+    for msg in messages:
+        if not msg.get('content'):
+            continue
+            
+        author = msg.get('author', {}).get('name', 'Unknown')
+        content = msg.get('content', '').strip()
+        
+        if content:
+            conversation.append(f"{author}: {content}")
+            
+    return conversation
+
+def load_all_conversations(data_dir):
+    all_conversations = []
+    files = glob.glob(os.path.join(data_dir, "*.json"))
+    print(f"Found {len(files)} JSON files in {data_dir}")
+    
+    for f in files:
+        try:
+            print(f"Loading {f}...")
+            conv = load_from_json(f)
+            if conv:
+                all_conversations.append(conv)
+        except Exception as e:
+            print(f"Error loading {f}: {e}")
+            
+    return all_conversations
+
+def generate_pairs(conversations, window_size=1):
+    """
+    Generates (Input, Target) pairs.
+    Input: Current message (or concatenated previous messages)
+    Target: Next message
+    """
+    pairs = []
+    for conv in conversations:
+        # Merge consecutive messages from same author? 
+        # For now, let's just create simple pairs: Msg[i] -> Msg[i+1]
+        
+        merged_conv = []
+        if not conv: continue
+        
+        current_msg = conv[0]
+        current_author = current_msg.split(':')[0]
+        
+        # Simple merge of consecutive messages from same author
+        for i in range(1, len(conv)):
+            msg = conv[i]
+            author = msg.split(':')[0]
+            content = ":".join(msg.split(':')[1:]).strip()
+            
+            if author == current_author:
+                current_msg += " \n " + content
+            else:
+                merged_conv.append(current_msg)
+                current_msg = msg
+                current_author = author
+        merged_conv.append(current_msg)
+        
+        # Create pairs
+        for i in range(len(merged_conv) - 1):
+            # Input: merged_conv[i]
+            target_msg = merged_conv[i+1]
+            # Remove Author from Target (we only want to predict the content)
+            if ':' in target_msg:
+                target_content = target_msg.split(':', 1)[1].strip()
+            else:
+                target_content = target_msg
+                
+            pairs.append((merged_conv[i], target_content))
+            
+    return pairs

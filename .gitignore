@@ -6,3 +6,4 @@ __pycache__/
 *.json
 *.h5
 *.keras
+data/
