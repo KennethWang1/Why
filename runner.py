@@ -166,7 +166,7 @@ def training_cycle():
         
         gc.collect()
 
-        sleep_time = 600 if cycle_count % 5 == 0 else 120
+        sleep_time = 150 if cycle_count % 5 == 0 else 0
         if cycle_count % 5 == 0:
             data_parse.clear_memory()
             
