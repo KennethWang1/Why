@@ -70,11 +70,11 @@ def generate_response(input_text):
         next_token_probs = preds[0, current_step_idx, :]
         next_token = np.argmax(next_token_probs)
         
-        if next_token == end_token_id:
+        if next_token == end_token_id or next_token == pad_token_id:
             break
         
         output_seq.append(next_token)
-
+    #print("Generated response:")
     return data_parse.decode(output_seq[1:])
 
 import re
@@ -285,7 +285,7 @@ if __name__ == "__main__":
         optimizer = keras.optimizers.Adam(learning_rate=trainer.LEARNING_RATE)
         loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
         m.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
-        training_cycle()
+        print(generate_response("how are you today?"))
     finally:
         test_iterator = None
         train_iterator = None

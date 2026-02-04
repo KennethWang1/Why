@@ -6,7 +6,7 @@ LEARNING_RATE = 0.001
 BATCH_SIZE = 12
 EPOCHS = 4
 
-def train_transformer(encoder_input_data, decoder_input_data, decoder_target_data, model=None, save_path="transformer_model.keras"):
+def train_transformer(encoder_input_data, decoder_input_data, decoder_target_data, model=None, save_path="transformer_model.keras", sample_weight=None):
     if model is None:
         model = build_transformer_model()
     
@@ -18,6 +18,7 @@ def train_transformer(encoder_input_data, decoder_input_data, decoder_target_dat
     history = model.fit(
         x=[encoder_input_data, decoder_input_data],
         y=decoder_target_data,
+        sample_weight=sample_weight,
         batch_size=BATCH_SIZE,
         epochs=EPOCHS,
         verbose=0
@@ -64,7 +65,10 @@ def pretrain_autoencoder(tokenized_texts, model=None, start_token_id=0, end_toke
     decoder_inputs = np.array(decoder_inputs, dtype=np.int32)
     decoder_targets = np.array(decoder_targets, dtype=np.int32)
     
-    return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="pretrained_model.keras", model=model)
+    # Create sample weights: 0 for PAD tokens in target, 1 otherwise
+    weights = np.where(decoder_targets == pad_token_id, 0.0, 1.0)
+    
+    return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="pretrained_model.keras", model=model, sample_weight=weights)
 
 def train_pairs(tokenized_pairs, model=None, start_token_id=0, end_token_id=1, pad_token_id=4):
     encoder_inputs = []
@@ -102,6 +106,9 @@ def train_pairs(tokenized_pairs, model=None, start_token_id=0, end_token_id=1, p
     encoder_inputs = np.array(encoder_inputs, dtype=np.int32)
     decoder_inputs = np.array(decoder_inputs, dtype=np.int32)
     decoder_targets = np.array(decoder_targets, dtype=np.int32)
+    
+    # Create sample weights: 0 for PAD tokens in target, 1 otherwise
+    weights = np.where(decoder_targets == pad_token_id, 0.0, 1.0)
 
-    return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="transformer_model_final.keras", model=model)
+    return train_transformer(encoder_inputs, decoder_inputs, decoder_targets, save_path="transformer_model_final.keras", model=model, sample_weight=weights)
 
