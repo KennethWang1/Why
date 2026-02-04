@@ -4,8 +4,6 @@ import model
 from datasets import load_dataset
 import numpy as np
 import threading
-import time
-import sys
 import os
 import gc
 from tensorflow import keras
@@ -101,27 +99,16 @@ def parse_chatml(text):
 import random
 
 def get_train_batch(limit=100):
-    global train_iterator, pair_buffer
+    global train_iterator, pair_buffer, all_training_pairs
     
-    # Initialize / Load data if empty
-    if not pair_buffer and train_iterator is None:
-        convs = data_parse.load_all_conversations("data")
-        all_pairs = data_parse.generate_pairs(convs)
-        random.shuffle(all_pairs)
-        pair_buffer = all_pairs
-    
-    batch = []
-    
-    global all_training_pairs
     if 'all_training_pairs' not in globals() or not all_training_pairs:
         convs = data_parse.load_all_conversations("data")
         all_training_pairs = data_parse.generate_pairs(convs)
         random.shuffle(all_training_pairs)
-        pair_buffer = list(all_training_pairs)
     
     if not pair_buffer:
-         random.shuffle(all_training_pairs)
-         pair_buffer = list(all_training_pairs)
+        random.shuffle(all_training_pairs)
+        pair_buffer = list(all_training_pairs)
          
     take = min(len(pair_buffer), limit)
     batch = pair_buffer[:take]
@@ -135,7 +122,7 @@ def training_cycle():
     
     while not stop_event.is_set():
         cycle_count += 1
-        pairs = get_train_batch(limit=100) # Returns (input, target) list
+        pairs = get_train_batch(limit=100) 
         if not pairs:
             continue
             
@@ -166,8 +153,8 @@ def training_cycle():
         
         gc.collect()
 
-        sleep_time = 60 if cycle_count % 20 == 0 else 10
-        if cycle_count % 20 == 0:
+        sleep_time = 30 if cycle_count % 5 == 0 else 10
+        if cycle_count % 5 == 0:
             data_parse.clear_memory()
             
         if stop_event.wait(timeout=sleep_time):
@@ -218,7 +205,9 @@ def test(samples=50):
             needed = samples - len(pairs)
             if len(new_pairs) > needed:
                 pairs.extend(new_pairs[:needed])
-                test_pair_buffer.extend(new_pairs[needed:])
+                remaining = new_pairs[needed:]
+                if len(test_pair_buffer) < 2000:
+                    test_pair_buffer.extend(remaining)
                 break
             else:
                 pairs.extend(new_pairs)
@@ -249,21 +238,32 @@ def test(samples=50):
     
     for input_seq, target_seq in zip(tokenized_inputs, tokenized_targets):
         
+        if len(input_seq) > model.MAX_LENGTH:
+             input_seq = input_seq[-model.MAX_LENGTH:]
+             
         enc_pad_len = model.MAX_LENGTH - len(input_seq)
         if enc_pad_len < 0:
-            input_seq = input_seq[-model.MAX_LENGTH:]
             enc_pad_len = 0
+            
         enc_in = input_seq + [pad_token_id] * enc_pad_len
         
-        target_seq_chopped = target_seq[:model.MAX_LENGTH-1] # reserve 1 for START/END
+        # Target Seq is [START, ..., END]
+        dec_in_seq = target_seq[:-1]
+        dec_target_seq = target_seq[1:]
         
-        dec_pad_len = model.MAX_LENGTH - (len(target_seq_chopped) + 1)
-        if dec_pad_len < 0: dec_pad_len = 0 
+        if len(dec_in_seq) > model.MAX_LENGTH:
+             dec_in_seq = dec_in_seq[:model.MAX_LENGTH]
+             dec_target_seq = dec_target_seq[:model.MAX_LENGTH]
+             
+        dec_pad_len = model.MAX_LENGTH - len(dec_in_seq)
+        if dec_pad_len < 0: dec_pad_len = 0
         
-        dec_in = [start_token_id] + target_seq_chopped + [pad_token_id] * dec_pad_len
+        dec_in = dec_in_seq + [pad_token_id] * dec_pad_len
+        target = dec_target_seq + [pad_token_id] * dec_pad_len
         
-        target_seq_for_loss = target_seq_chopped + [end_token_id]
-        target = target_seq_for_loss + [pad_token_id] * dec_pad_len
+        encoder_inputs.append(enc_in)
+        decoder_inputs.append(dec_in)
+        decoder_targets.append(target)
         
         encoder_inputs.append(enc_in)
         decoder_inputs.append(dec_in)

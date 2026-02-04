@@ -1,12 +1,10 @@
-import pandas as pd
 import numpy as np
-import tensorflow as tf
 from tensorflow import keras
 from model import build_transformer_model, MAX_LENGTH
 
 LEARNING_RATE = 0.001
 BATCH_SIZE = 12
-EPOCHS = 2
+EPOCHS = 4
 
 def train_transformer(encoder_input_data, decoder_input_data, decoder_target_data, model=None, save_path="transformer_model.keras"):
     if model is None:
@@ -35,16 +33,28 @@ def pretrain_autoencoder(tokenized_texts, model=None, start_token_id=0, end_toke
     decoder_targets = []
     
     for seq in tokenized_texts:
-        seq = list(seq[-(MAX_LENGTH-2):])
-        
+        if len(seq) > MAX_LENGTH:
+             seq = seq[:MAX_LENGTH]
+             
         enc_pad_len = MAX_LENGTH - len(seq)
+        if enc_pad_len < 0: enc_pad_len = 0
         enc_in = seq + [pad_token_id] * enc_pad_len
         
-        dec_in = [start_token_id] + seq + [pad_token_id] * (enc_pad_len - 1 if enc_pad_len > 0 else 0)
-        dec_in = dec_in[:MAX_LENGTH]
+        # seq is [START, content, END]
+        # decoder inputs: [START, content] (remove last END)
+        # decoder targets: [content, END] (remove first START)
         
-        target = seq + [end_token_id] + [pad_token_id] * (enc_pad_len - 1 if enc_pad_len > 0 else 0)
-        target = target[:MAX_LENGTH]
+        dec_in_seq = seq[:-1]
+        dec_target_seq = seq[1:]
+        
+        dec_pad_len = MAX_LENGTH - len(dec_in_seq)
+        if dec_pad_len < 0:
+             dec_in_seq = dec_in_seq[:MAX_LENGTH]
+             dec_target_seq = dec_target_seq[:MAX_LENGTH]
+             dec_pad_len = 0
+             
+        dec_in = dec_in_seq + [pad_token_id] * dec_pad_len
+        target = dec_target_seq + [pad_token_id] * dec_pad_len
         
         encoder_inputs.append(enc_in)
         decoder_inputs.append(dec_in)
@@ -63,25 +73,27 @@ def train_pairs(tokenized_pairs, model=None, start_token_id=0, end_token_id=1, p
     
     for input_seq, target_seq in tokenized_pairs:
         # Encoder Input: just the input sequence
+        if len(input_seq) > MAX_LENGTH:
+            input_seq = input_seq[-MAX_LENGTH:] # Keep end of context
+            
         enc_pad_len = MAX_LENGTH - len(input_seq)
-        if enc_pad_len < 0:
-            input_seq = input_seq[-MAX_LENGTH:]
-            enc_pad_len = 0
+        if enc_pad_len < 0: enc_pad_len = 0
             
         enc_in = input_seq + [pad_token_id] * enc_pad_len
         
-        # Decoder Input: START + target sequence
-        target_seq_chopped = target_seq[:MAX_LENGTH-1] # reserve 1 for START/END
+        # Target Seq is [START, ..., END]
+        dec_in_seq = target_seq[:-1]
+        dec_target_seq = target_seq[1:]
         
-        dec_pad_len = MAX_LENGTH - (len(target_seq_chopped) + 1)
-        if dec_pad_len < 0: dec_pad_len = 0 
+        if len(dec_in_seq) > MAX_LENGTH:
+             dec_in_seq = dec_in_seq[:MAX_LENGTH]
+             dec_target_seq = dec_target_seq[:MAX_LENGTH]
+             
+        dec_pad_len = MAX_LENGTH - len(dec_in_seq)
+        if dec_pad_len < 0: dec_pad_len = 0
         
-        dec_in = [start_token_id] + target_seq_chopped + [pad_token_id] * dec_pad_len
-        
-        # Decoder Target: target sequence + END
-        target_seq_for_loss = target_seq_chopped + [end_token_id]
-        
-        target = target_seq_for_loss + [pad_token_id] * dec_pad_len
+        dec_in = dec_in_seq + [pad_token_id] * dec_pad_len
+        target = dec_target_seq + [pad_token_id] * dec_pad_len
         
         encoder_inputs.append(enc_in)
         decoder_inputs.append(dec_in)

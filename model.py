@@ -1,5 +1,3 @@
-import pandas as pd
-import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -11,7 +9,7 @@ try:
 except:
     pass
 
-VOCAB_SIZE = 15000  
+VOCAB_SIZE = 20000  
 MAX_LENGTH = 128
 EMBED_DIM = 256    
 NUM_HEADS = 4
