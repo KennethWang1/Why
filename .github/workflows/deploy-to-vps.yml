@@ -21,8 +21,11 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}  # Use the private key secret
  
+      - name: Wait for Tailscale connection to stabilize
+        run: sleep 10
+ 
       - name: Add VPS to known_hosts (avoid "trust this host?" prompts)
-        run: ssh-keyscan -p ${{ secrets.VPS_PORT }} -H ${{ secrets.VPS_IP }} >> ~/.ssh/known_hosts
+        run: ssh-keyscan -T 10 -p ${{ secrets.VPS_PORT }} -H ${{ secrets.VPS_IP }} >> ~/.ssh/known_hosts
  
       - name: SSH into VPS and pull latest code
         run: |
