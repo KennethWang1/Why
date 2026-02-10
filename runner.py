@@ -6,6 +6,7 @@ import numpy as np
 import threading
 import os
 import gc
+import re
 from tensorflow import keras
 
 training_active = False
@@ -13,7 +14,7 @@ stop_event = threading.Event()
 current_accuracy = 0.0
 worker_thread = None
 train_iterator = None
-test_iterator = None
+dataset_iterators = {}
 pair_buffer = []
 test_pair_buffer = []
 model_lock = threading.Lock()
@@ -74,10 +75,7 @@ def generate_response(input_text):
             break
         
         output_seq.append(next_token)
-    #print("Generated response:")
     return data_parse.decode(output_seq[1:])
-
-import re
 
 def parse_chatml(text):
     parts = text.split("<|im_start|>")
@@ -185,38 +183,90 @@ def get_current_accuracy():
     return current_accuracy
 
 def test(samples=50):
-    global test_iterator, test_pair_buffer
-    if test_iterator is None:
-        dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
-        test_iterator = iter(dataset)
+    global dataset_iterators, test_pair_buffer
+    
+    datasets_list = [
+        "Cynaptics/persona-chat",
+        "ParlAI/blended_skill_talk",
+        "facebook/empathetic_dialogues"
+    ]
     
     pairs = []
     if test_pair_buffer:
         take = min(len(test_pair_buffer), samples)
         pairs.extend(test_pair_buffer[:take])
         test_pair_buffer = test_pair_buffer[take:]
+
+    current_dataset = random.choice(datasets_list)
     
-    try:
-        while len(pairs) < samples:
-            example = next(test_iterator)
-            text = example['text']
-            new_pairs = parse_chatml(text)
-
-            needed = samples - len(pairs)
-            if len(new_pairs) > needed:
-                pairs.extend(new_pairs[:needed])
-                remaining = new_pairs[needed:]
-                if len(test_pair_buffer) < 2000:
-                    test_pair_buffer.extend(remaining)
-                break
-            else:
-                pairs.extend(new_pairs)
-
-    except StopIteration:
-         dataset = load_dataset("Bossologist/reddit-conversations-processed", split='train', streaming=True)
-         test_iterator = iter(dataset)
+    attempts = 0
+    max_attempts = samples * 50
+    while len(pairs) < samples and attempts < max_attempts:
+        attempts += 1
+        
+        if current_dataset not in dataset_iterators:
+            try:
+                ds = load_dataset(current_dataset, split='train', streaming=True)
+                dataset_iterators[current_dataset] = iter(ds)
+            except Exception as e:
+                print(f"Error loading {current_dataset}: {e}")
+                current_dataset = random.choice(datasets_list)
+                continue
+                
+        iterator = dataset_iterators[current_dataset]
+        
+        try:
+            example = next(iterator)
+            input_text = ""
+            target_text = ""
+            
+            if current_dataset == "Cynaptics/persona-chat":
+                # Keys: dialogue (list), reference (string)
+                dialogue = example.get('dialogue', [])
+                reference = example.get('reference', "")
+                if dialogue and reference:
+                    # dialogue is a list of strings usually
+                    if isinstance(dialogue, list):
+                        input_text = dialogue[-1] if dialogue else ""
+                    else:
+                        input_text = str(dialogue)
+                    target_text = reference
+            
+            elif current_dataset == "ParlAI/blended_skill_talk":
+                # Keys: previous_utterance (list of strings), free_messages (list of strings)
+                prev_utterance = example.get('previous_utterance', [])
+                free_messages = example.get('free_messages', [])
+                
+                if prev_utterance and free_messages:
+                    if isinstance(prev_utterance, list):
+                        input_text = prev_utterance[-1] if prev_utterance else ""
+                    else:
+                        input_text = str(prev_utterance)
+                        
+                    if isinstance(free_messages, list):
+                        target_text = free_messages[0] if free_messages else ""
+                    else:
+                        target_text = str(free_messages)
+                
+            elif current_dataset == "facebook/empathetic_dialogues":
+                # Keys: prompt (string), utterance (string)
+                input_text = example.get('prompt', "")
+                target_text = example.get('utterance', "")
+            
+            if input_text and target_text:
+                pairs.append((input_text, target_text))
+                attempts = 0 # Reset attempts on success
+                
+        except StopIteration:
+            if current_dataset in dataset_iterators:
+                del dataset_iterators[current_dataset]
+            current_dataset = random.choice(datasets_list)
+        except Exception as e:
+            print(f"Error fetching/parsing from {current_dataset}: {e}")
+            current_dataset = random.choice(datasets_list)
     
     if not pairs:
+        print("Warning: No test pairs could be generated from datasets. Check network/HF availability.")
         return 0.0
 
     inputs = [p[0] for p in pairs]
@@ -285,8 +335,9 @@ if __name__ == "__main__":
         optimizer = keras.optimizers.Adam(learning_rate=trainer.LEARNING_RATE)
         loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
         m.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
-        print(generate_response("how are you today?"))
+        training_cycle()
+        print(f"Initial Test Accuracy: {test():.4f}")
     finally:
-        test_iterator = None
+        dataset_iterators = {}
         train_iterator = None
         gc.collect()
