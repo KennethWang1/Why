@@ -198,11 +198,9 @@ def load_from_json(file_path):
 def load_all_conversations(data_dir):
     all_conversations = []
     files = glob.glob(os.path.join(data_dir, "*.json"))
-    print(f"Found {len(files)} JSON files in {data_dir}")
     
     for f in files:
         try:
-            print(f"Loading {f}...")
             conv = load_from_json(f)
             if conv:
                 all_conversations.append(conv)
