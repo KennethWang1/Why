@@ -221,11 +221,9 @@ def test(samples=50):
             target_text = ""
             
             if current_dataset == "Cynaptics/persona-chat":
-                # Keys: dialogue (list), reference (string)
                 dialogue = example.get('dialogue', [])
                 reference = example.get('reference', "")
                 if dialogue and reference:
-                    # dialogue is a list of strings usually
                     if isinstance(dialogue, list):
                         input_text = dialogue[-1] if dialogue else ""
                     else:
@@ -233,7 +231,6 @@ def test(samples=50):
                     target_text = reference
             
             elif current_dataset == "ParlAI/blended_skill_talk":
-                # Keys: previous_utterance (list of strings), free_messages (list of strings)
                 prev_utterance = example.get('previous_utterance', [])
                 free_messages = example.get('free_messages', [])
                 
@@ -249,13 +246,12 @@ def test(samples=50):
                         target_text = str(free_messages)
                 
             elif current_dataset == "facebook/empathetic_dialogues":
-                # Keys: prompt (string), utterance (string)
                 input_text = example.get('prompt', "")
                 target_text = example.get('utterance', "")
             
             if input_text and target_text:
                 pairs.append((input_text, target_text))
-                attempts = 0 # Reset attempts on success
+                attempts = 0
                 
         except StopIteration:
             if current_dataset in dataset_iterators:
@@ -272,9 +268,7 @@ def test(samples=50):
     inputs = [p[0] for p in pairs]
     targets = [p[1] for p in pairs]
 
-    tokenized_inputs = [] 
-    for inp in inputs:
-        tokenized_inputs.append(data_parse.create_context(inp))
+    tokenized_inputs = data_parse.tonkenizer(inputs)
         
     tokenized_targets = data_parse.tonkenizer(targets)
     
@@ -297,7 +291,6 @@ def test(samples=50):
             
         enc_in = input_seq + [pad_token_id] * enc_pad_len
         
-        # Target Seq is [START, ..., END]
         dec_in_seq = target_seq[:-1]
         dec_target_seq = target_seq[1:]
         
@@ -315,17 +308,15 @@ def test(samples=50):
         decoder_inputs.append(dec_in)
         decoder_targets.append(target)
         
-        encoder_inputs.append(enc_in)
-        decoder_inputs.append(dec_in)
-        decoder_targets.append(target)
-        
     encoder_inputs = np.array(encoder_inputs)
     decoder_inputs = np.array(decoder_inputs)
     decoder_targets = np.array(decoder_targets)
     
+    weights = np.where(decoder_targets == pad_token_id, 0.0, 1.0)
+
     with model_lock:
-        results = m.evaluate([encoder_inputs, decoder_inputs], decoder_targets, verbose=0)
-    
+        results = m.evaluate([encoder_inputs, decoder_inputs], decoder_targets, sample_weight=weights, verbose=0)
+
     accuracy = results[1]
     return accuracy
 

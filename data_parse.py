@@ -15,22 +15,89 @@ tokenizer = None
 tokenizer_lock = threading.Lock()
 VOCAB_FILE = "tokenizer.json"
 
-index = faiss.IndexFlatL2(384)
-stored_tokens_map = {}
-entry_count = 0
-
 SPECIAL_TOKENS = ["<TALK_START>", "<TALK_END>", "<THINK_START>", "<THINK_END>", "<PAD>"]
 
+class RAGStore:
+    def __init__(self, max_entries=500):
+        self.index = faiss.IndexFlatL2(384)
+        self.stored_tokens = []
+        self.max_entries = max_entries
+
+    def add(self, text, encoder):
+        embedding = encoder.encode(text)
+        embedding = np.array([embedding], dtype=np.float32)
+        faiss.normalize_L2(embedding)
+
+        if self.index.ntotal > 0:
+            D, _ = self.index.search(embedding, k=1)
+            if D[0][0] < 0.05:
+                return False
+
+        if self.index.ntotal >= self.max_entries:
+            self._evict_oldest()
+
+        self.index.add(embedding)
+        self.stored_tokens.append(tonkenizer([text])[0])
+        return True
+
+    def create_context(self, message, encoder, max_context_tokens=126):
+        query_vec = encoder.encode([message])
+        faiss.normalize_L2(query_vec)
+
+        tokenized_query = tonkenizer([message])[0]
+        available = max_context_tokens - len(tokenized_query)
+        context_tokens = []
+
+        if self.index.ntotal > 0:
+            D, I = self.index.search(query_vec, k=min(5, self.index.ntotal))
+            for i, idx in enumerate(I[0]):
+                if idx == -1 or D[0][i] > 1.2:
+                    continue
+                retrieved = self.stored_tokens[idx]
+                if available - len(retrieved) < 0:
+                    continue
+                context_tokens.extend(retrieved)
+                available -= len(retrieved)
+
+        final_input = context_tokens + tokenized_query
+        if len(final_input) > 256:
+            final_input = final_input[-256:]
+        return final_input
+
+    def clear(self):
+        self.index = faiss.IndexFlatL2(384)
+        self.stored_tokens.clear()
+
+    def _evict_oldest(self):
+        keep_count = self.max_entries // 2
+        entries_to_keep = self.stored_tokens[-keep_count:]
+
+        new_index = faiss.IndexFlatL2(384)
+        for i in range(self.index.ntotal - keep_count, self.index.ntotal):
+            vec = self.index.reconstruct(i)
+            new_index.add(np.array([vec], dtype=np.float32))
+
+        self.index = new_index
+        self.stored_tokens = entries_to_keep
+
+
+chat_rag = RAGStore(max_entries=500)
+train_rag = RAGStore(max_entries=500)
+
 def get_training_corpus():
-    try:
-        raw_dataset = load_dataset('roneneldan/TinyStories', split='train', streaming=True)
-        for i, item in enumerate(raw_dataset):
-            if i >= 2000:
-                break
-            yield item['text']
-    except Exception as e:
-        print(f"Error loading dataset for tokenizer training: {e}")
-        yield "This is a fallback sentence to ensure tokenizer has something to train on."
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    files = glob.glob(os.path.join(data_dir, "*.json"))
+
+    for filepath in files:
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            for msg in data.get('messages', []):
+                content = msg.get('content', '').strip()
+                if content and not msg.get('author', {}).get('isBot', False):
+                    yield content
+        except Exception as e:
+            print(f"Error reading {filepath} for tokenizer training: {e}")
 
 def load_or_train_tokenizer():
     global tokenizer
@@ -100,86 +167,31 @@ def get_special_token_id(token):
     id = tokenizer.token_to_id(token)
     return id if id is not None else 4
 
-#legacy
-async def getMessage(message):
-    #await message.channel.send(f'Received your message: {message.content}')
-    return True
-
 def add_embeddings(text):
-    global m, index, stored_tokens_map, entry_count
-    
-    # Encode and normalize
-    embedding = m.encode(text)
-    faiss.normalize_L2(np.array([embedding])) # Verify length is not 1 by normalizing to 1
-    
-    # Add to FAISS
-    index.add(np.array([embedding]))
-    
-    # Store text correspondence
-    stored_tokens_map[entry_count] = tonkenizer([text])[0]
-    entry_count += 1
-    return True
-
-def clear_memory():
-    global index, stored_tokens_map, entry_count
-    index = faiss.IndexFlatL2(384)
-    stored_tokens_map.clear()
-    entry_count = 0
-    print("RAG Memory cleared.")
-
-def rag(message):
-    global m
-    message_embeddings = m.encode(message)
-    return message_embeddings
+    return chat_rag.add(text, m)
 
 def create_context(message):
-    global m, index, stored_tokens_map
-    
-    query_vec = m.encode([message])
-    faiss.normalize_L2(query_vec)
-    
-    if index.ntotal > 0:
-        D, I = index.search(query_vec, k=min(5, index.ntotal))
-        indices = I[0]
-        distances = D[0]
-    else:
-        indices = []
-        distances = []
-    
-    tokenized_query = tonkenizer([message])[0]
-    start_token_id = get_special_token_id("<TALK_START>")
-    
-    available_tokens = 126 - len(tokenized_query)
-    context_tokens = []
+    return chat_rag.create_context(message, m)
 
-    for i, idx in enumerate(indices):
-        if idx == -1: continue
-        
-        if distances[i] > 1.2: 
-            continue
-            
-        retrieved_seq = stored_tokens_map[idx]
-        
-        if available_tokens - len(retrieved_seq) < 0:
-            continue
+def clear_chat_memory():
+    chat_rag.clear()
+    print("Chat RAG memory cleared.")
 
-        context_tokens.extend(retrieved_seq)
-        available_tokens -= len(retrieved_seq)
-    
-    final_input = context_tokens + tokenized_query
-    
-    if len(final_input) > 256:
-       final_input = final_input[-256:]
-       
-    return final_input
+def add_train_embedding(text):
+    return train_rag.add(text, m)
+
+def create_train_context(message):
+    return train_rag.create_context(message, m)
+
+def clear_memory():
+    train_rag.clear()
+    print("Train RAG memory cleared.")
 
 def load_from_json(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
     messages = data.get('messages', [])
-    # Sort by timestamp just in case, though usually they are ordered
-    # messages.sort(key=lambda x: x['timestamp'])
     
     conversation = []
     
@@ -210,15 +222,8 @@ def load_all_conversations(data_dir):
     return all_conversations
 
 def generate_pairs(conversations, window_size=1):
-    """
-    Generates (Input, Target) pairs.
-    Input: Current message (or concatenated previous messages)
-    Target: Next message
-    """
     pairs = []
     for conv in conversations:
-        # Merge consecutive messages from same author? 
-        # For now, let's just create simple pairs: Msg[i] -> Msg[i+1]
         
         merged_conv = []
         if not conv: continue
@@ -226,7 +231,6 @@ def generate_pairs(conversations, window_size=1):
         current_msg = conv[0]
         current_author = current_msg.split(':')[0]
         
-        # Simple merge of consecutive messages from same author
         for i in range(1, len(conv)):
             msg = conv[i]
             author = msg.split(':')[0]
@@ -240,11 +244,8 @@ def generate_pairs(conversations, window_size=1):
                 current_author = author
         merged_conv.append(current_msg)
         
-        # Create pairs
         for i in range(len(merged_conv) - 1):
-            # Input: merged_conv[i]
             target_msg = merged_conv[i+1]
-            # Remove Author from Target (we only want to predict the content)
             if ':' in target_msg:
                 target_content = target_msg.split(':', 1)[1].strip()
             else:

@@ -2,7 +2,7 @@ import numpy as np
 from tensorflow import keras
 from model import build_transformer_model, MAX_LENGTH
 
-LEARNING_RATE = 0.001
+LEARNING_RATE = 1e-4
 BATCH_SIZE = 12
 EPOCHS = 4
 

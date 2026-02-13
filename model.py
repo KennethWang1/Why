@@ -9,7 +9,7 @@ try:
 except:
     pass
 
-VOCAB_SIZE = 20000  
+VOCAB_SIZE = 10000
 MAX_LENGTH = 128
 EMBED_DIM = 256    
 NUM_HEADS = 4
