@@ -72,12 +72,6 @@ async def on_message(message):
             print(f"Error generating response: {e}")
             await message.channel.send(f"Error: {e}")
 
-    try:
-        await data_parse.getMessage(message)
-    except Exception as e:
-        print(f"Error processing message: {e}")
-        await message.channel.send(f'an error occurred: {e}')
-
 if __name__ == '__main__':
     data_parse.load_vocab()
     token = os.getenv('DISCORD_TOKEN')

@@ -7,6 +7,7 @@ import threading
 import os
 import gc
 import re
+import random
 from tensorflow import keras
 
 training_active = False
@@ -92,9 +93,6 @@ def parse_chatml(text):
     if user_msg and assistant_msg:
         return [(user_msg, assistant_msg)]
     return []
-
-
-import random
 
 def get_train_batch(limit=100):
     global train_iterator, pair_buffer, all_training_pairs
