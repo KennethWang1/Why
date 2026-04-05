@@ -4,6 +4,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import data_parse
 import runner
+import tester
 
 load_dotenv()
 
@@ -61,16 +62,48 @@ async def on_message(message):
         input_text = f"{message.author.name}: {message.content}"
         
         try:
-            response = await bot.loop.run_in_executor(None, runner.generate_response, input_text)
+            response1 = await bot.loop.run_in_executor(
+                None,
+                lambda: runner.generate_response(input_text, temperature=0.85, top_k=30, min_tokens=4),
+            )
+            response2 = await bot.loop.run_in_executor(
+                None,
+                lambda: runner.generate_response(input_text, temperature=1.05, top_k=60, min_tokens=4),
+            )
             data_parse.add_embeddings(input_text)
-            data_parse.add_embeddings(response)
-            if response.strip():
-                await message.channel.send(response)
-            else:
-                await message.channel.send("...")
+            data_parse.add_embeddings(response1)
+            message_content = f"1.\n{response1}\n2.\n{response2}"
+            message_content.strip()
+            bot_message = await message.channel.send(message_content)
+            await bot_message.add_reaction("1️⃣")
+            await bot_message.add_reaction("2️⃣")
+
+            tester.add_response(input_text, response1, response2)
         except Exception as e:
             print(f"Error generating response: {e}")
             await message.channel.send(f"Error: {e}")
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    if user == bot.user:
+        return
+
+    # Only process votes on response messages sent by this bot.
+    if reaction.message.author != bot.user:
+        return
+
+    if reaction.emoji not in ["1️⃣", "2️⃣"]:
+        return
+
+    selected = reaction.message.content.split("\n2.\n")[0].replace("1.\n", "").strip()
+    if reaction.emoji == "1️⃣":
+        #print(f"Validating response: {selected} with choice 1")
+        tester.validate_response(selected, 1)
+    else:
+        #print(f"Validating response: {selected} with choice 2")
+        tester.validate_response(selected, 2)
+    #print(f"Reaction added: {reaction.emoji} by {user.name}")
+    #print(f"message content: {selected}")
 
 if __name__ == '__main__':
     data_parse.load_vocab()

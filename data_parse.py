@@ -16,6 +16,11 @@ tokenizer_lock = threading.Lock()
 VOCAB_FILE = "tokenizer.json"
 
 SPECIAL_TOKENS = ["<TALK_START>", "<TALK_END>", "<THINK_START>", "<THINK_END>", "<PAD>"]
+EXCLUDED_TRAINING_FILES = {"tester_data.json"}
+
+
+def _is_excluded_training_file(file_path):
+    return os.path.basename(file_path).lower() in EXCLUDED_TRAINING_FILES
 
 class RAGStore:
     def __init__(self, max_entries=500):
@@ -89,6 +94,8 @@ def get_training_corpus():
     files = glob.glob(os.path.join(data_dir, "*.json"))
 
     for filepath in files:
+        if _is_excluded_training_file(filepath):
+            continue
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -212,6 +219,8 @@ def load_all_conversations(data_dir):
     files = glob.glob(os.path.join(data_dir, "*.json"))
     
     for f in files:
+        if _is_excluded_training_file(f):
+            continue
         try:
             conv = load_from_json(f)
             if conv:

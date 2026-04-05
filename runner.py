@@ -36,7 +36,23 @@ else:
     print("No saved model found. Building new model...")
     m = model.build_transformer_model()
 
-def generate_response(input_text):
+def _sample_next_token(token_probs, temperature=0.9, top_k=40):
+    # Clamp values to keep sampling numerically stable.
+    temperature = max(0.1, float(temperature))
+    top_k = max(1, min(int(top_k), len(token_probs)))
+
+    scaled = np.log(np.maximum(token_probs, 1e-12)) / temperature
+
+    top_indices = np.argpartition(scaled, -top_k)[-top_k:]
+    top_logits = scaled[top_indices]
+    top_logits = top_logits - np.max(top_logits)
+    probs = np.exp(top_logits)
+    probs = probs / np.sum(probs)
+
+    return int(np.random.choice(top_indices, p=probs))
+
+
+def generate_response(input_text, temperature=0.9, top_k=40, min_tokens=3, _retry_count=0):
     data_parse.load_vocab()
     
     start_token_id = data_parse.get_special_token_id("<TALK_START>")
@@ -70,13 +86,31 @@ def generate_response(input_text):
         
         current_step_idx = len(output_seq) - 1
         next_token_probs = preds[0, current_step_idx, :]
-        next_token = np.argmax(next_token_probs)
+        next_token = _sample_next_token(next_token_probs, temperature=temperature, top_k=top_k)
         
-        if next_token == end_token_id or next_token == pad_token_id:
+        if (next_token == end_token_id or next_token == pad_token_id) and len(output_seq) - 1 >= min_tokens:
             break
+
+        if next_token == end_token_id or next_token == pad_token_id:
+            continue
         
         output_seq.append(next_token)
-    return data_parse.decode(output_seq[1:])
+
+    decoded = data_parse.decode(output_seq[1:]).strip()
+    if not decoded and _retry_count < 1:
+        # Retry once with more exploration if first decode is empty.
+        return generate_response(
+            input_text,
+            temperature=min(1.3, temperature + 0.2),
+            top_k=max(50, top_k),
+            min_tokens=min_tokens,
+            _retry_count=_retry_count + 1,
+        )
+
+    if not decoded:
+        return "..."
+
+    return decoded
 
 def parse_chatml(text):
     parts = text.split("<|im_start|>")
@@ -323,9 +357,7 @@ if __name__ == "__main__":
         data_parse.load_vocab()
         optimizer = keras.optimizers.Adam(learning_rate=trainer.LEARNING_RATE)
         loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
-        m.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
-        training_cycle()
-        print(f"Initial Test Accuracy: {test():.4f}")
+        print(f"Initial Test: {generate_response('Hello, how are you?')}")
     finally:
         dataset_iterators = {}
         train_iterator = None

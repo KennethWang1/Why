@@ -8,3 +8,4 @@ __pycache__/
 *.keras
 data/
 data_cleaner.py
+clean_data/
