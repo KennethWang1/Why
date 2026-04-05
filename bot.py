@@ -15,6 +15,8 @@ bot = commands.Bot(command_prefix='!', intents=intents,strip_after_prefix=True)
 
 @bot.command(description="Start the training loop.")
 async def start(ctx):
+    if ctx.user != 'wasn.t_me':
+        return
     if runner.training_active:
         await ctx.send("Training is already in progress.")
     else:
@@ -23,6 +25,8 @@ async def start(ctx):
 
 @bot.command(description="Stop the training loop.")
 async def stop(ctx):
+    if ctx.user != 'wasn.t_me':
+        return
     if not runner.training_active:
         await ctx.send("Training is not currently running.")
     else:
@@ -40,11 +44,14 @@ async def ping(ctx):
 
 @bot.command(description="saves the vocabulary to a file.")
 async def save(ctx):
-    data_parse.save_vocab()
-    await ctx.send("Vocabulary saved to file.")
+    #data_parse.save_vocab()
+    #await ctx.send("Vocabulary saved to file.")
+    await ctx.send("deprecated")
 
 @bot.event
-async def on_ready():
+async def on_ready(ctx):
+    if ctx.user != 'wasn.t_me':
+        return
     print(f'Logged in as {bot.user.name}')
 
 @bot.event
