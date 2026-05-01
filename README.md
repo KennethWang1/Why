@@ -2,14 +2,14 @@ Wow, training my own AI chatbot!! What could possibly go wrong?
 
 # Description
 
-A 22 million param model (1GB-ish of RAM) trained on both publicly available data as well as privately obtained ones. Runs on a Raspberry Pi currently and responds to messages sent in the bot channel of whatever server it is in. Note: It does hallucinate a lot and is not very good. Please use proper judgement as I am not responsible for the actions anyone takes as a result of something the LLM said.
+A 22 million param model (1GB-ish of RAM) trained on both publicly available data as well as privately obtained ones. Runs on a Raspberry Pi currently and responds to messages sent in the bot channel of whatever server it is in. Note: It does hallucinate a lot and is not very good. Please use proper judgment, as I am not responsible for the actions anyone takes as a result of something the LLM said.
 
 # Purpose
 For me to learn how to create and train an AI model from scratch and see what limitations come up from it. Also, because it is funny to see a chatbot go insane!
 
 # Usage
 
-Simply message in the bot channel of a server with the bot. It should respond (albeit slowly) with 2 responses. Please select the one you prefer (this is for future training purposes!) Should a response not come, either wait (as responses can take up to 30 minutes), or message me informing the bot is down (you can see the status through Discord).
+Simply message in the bot channel of a server with the bot. It should respond (albeit slowly) with 2 responses. Please select the one you prefer (this is for future training purposes!) Should a response not come, either wait (as responses can take up to 30 minutes), or message me informing the bot is down (you can see the bot's status through Discord).
 
 ### Bot commands
 #### Public
